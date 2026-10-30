@@ -53,6 +53,21 @@ def test_run_of_a_missing_command_is_none(real):
     assert winapi.run(["whiney-no-such-command-xyz"]) is None
 
 
+def test_bare_tool_names_run_from_system32_on_windows(real, monkeypatch):
+    # A bare "netsh" would be searched for in the exe's folder (Downloads) first
+    monkeypatch.setattr(winapi, "IS_WINDOWS", True)
+    monkeypatch.setattr(winapi, "system_folder", lambda: Path("WINROOT", "System32"))
+    assert winapi.system_tool("netsh") == str(Path("WINROOT", "System32", "netsh.exe"))
+    assert winapi.system_tool("wevtutil.exe") == str(Path("WINROOT", "System32", "wevtutil.exe"))
+    assert winapi.system_tool(sys.executable) == sys.executable        # a full path is kept
+
+
+def test_bare_tool_names_are_kept_off_windows(real, monkeypatch):
+    monkeypatch.setattr(winapi, "IS_WINDOWS", False)
+    assert winapi.system_tool("netsh") == "netsh"
+    assert winapi.system_folder() is None
+
+
 def test_run_that_times_out_is_none(real):
     assert winapi.run([sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.5) is None
 
@@ -88,6 +103,12 @@ def test_registry_reads_a_value_every_windows_has(real):
 def test_registry_lists_subkeys_every_windows_has(real):
     subkeys = winapi.reg_subkeys("HKLM", r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
     assert subkeys and all(isinstance(s, str) for s in subkeys)
+
+
+@windows_only
+def test_system_tools_resolve_to_the_real_system32(real):
+    assert winapi.system_folder() == Path(os.environ["SystemRoot"]) / "System32"
+    assert Path(winapi.system_tool("netsh")).is_file()
 
 
 @windows_only

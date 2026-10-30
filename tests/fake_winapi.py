@@ -76,6 +76,12 @@ class FakeWinapi:
     def launch(self, exe, cwd, new_console=False):
         self.launched.append((str(exe), str(cwd), new_console))
 
+    def system_folder(self):
+        return None
+
+    def system_tool(self, name):
+        return name
+
     def run(self, cmd, timeout=None):
         self.commands.append(list(cmd))
         return self.outputs.get(cmd[0])

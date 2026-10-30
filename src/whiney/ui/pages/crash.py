@@ -170,7 +170,9 @@ class CrashPage(Page):
         for w in self.detail_btns.winfo_children():
             w.destroy()
         logs = [ev.analysis.log, *ev.analysis.other_logs] if ev.analysis else []
-        for i, log in enumerate(p for p in logs if p and Path(p).exists()):
+        # crash_history.json is a plain file anyone can edit: open logs only, never a program it names
+        logs = [p for p in logs if p and Path(p).suffix.lower() in (".log", ".txt") and Path(p).exists()]
+        for i, log in enumerate(logs):
             text = "Open crash log" if i == 0 else f"Log {i + 1}"
             btn(self.detail_btns, text, functools.partial(winapi.open_path, log), width=110 if i else 140) \
                 .pack(side="left", padx=(8 if i else 0, 0))

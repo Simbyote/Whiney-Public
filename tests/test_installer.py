@@ -19,6 +19,7 @@ tarfile's "data" filter.
 """
 import hashlib
 import io
+import json
 import tarfile
 import threading
 import zipfile
@@ -483,6 +484,36 @@ def test_the_update_hand_off_lists_mods_to_remove_in_vortex(sandbox, update, pla
     ui = inst.ui = FakeUI(on_wait=[closes_vortex])
     inst.vortex()
     assert "Remove these mods in Vortex" in ui.waits[0][1] and "      - Alpha" in ui.waits[0][1]
+
+
+def _update_removing(removed):
+    """An update archive whose _update_info.json lists `removed`, beside one mod."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for name, data in ((f"mods/{paths.UPDATE_INFO}", json.dumps({"removed": removed}).encode()),
+                           ("mods/Gamma/Gamma.esp", b"G")):
+            ti = tarfile.TarInfo(name)
+            ti.size = len(data)
+            tar.addfile(ti, io.BytesIO(data))
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("removed", [
+    pytest.param(["../../precious"], id="dotdot"),
+    pytest.param(["..\\..\\precious"], id="backslash"),
+    pytest.param(["C:precious"], id="drive"),
+    pytest.param("precious", id="not-a-list"),
+])
+def test_an_update_cannot_remove_files_outside_the_vortex_folder(sandbox, player, removed):
+    config.CONFIG["update_file_id"] = UPDATE_ID
+    paths.ZIP_DIR.mkdir(parents=True)
+    precious = paths.ZIP_DIR.parent.parent / "precious.zip"       # ToVortex/../../precious.zip
+    precious.write_bytes(b"the player's own file")
+    paths.UPDATE_ARCHIVE.write_bytes(_update_removing(removed))
+    with pytest.raises(installer.Abort, match="removed mods can't be used safely"):
+        installer.Installer(FakeUI(answers=[True]), "update", game=player).get_update()
+    assert precious.read_bytes() == b"the player's own file"
+    assert not paths.UPDATE_ARCHIVE.exists() and not paths.UPDATE_EXTRACT.exists()
 
 
 def test_an_update_reused_from_an_earlier_run_is_checked_too(sandbox, update, player):

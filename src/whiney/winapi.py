@@ -109,6 +109,19 @@ def documents_folder() -> Path | None:
     return None
 
 
+def system_folder() -> Path | None:
+    """Windows' System32 folder, as Windows reports it; None if not on Windows or unknown."""
+    if IS_WINDOWS:
+        try:
+            import ctypes
+            buf = ctypes.create_unicode_buffer(260)
+            if ctypes.windll.kernel32.GetSystemDirectoryW(buf, 260):
+                return Path(buf.value)
+        except Exception:
+            pass
+    return None
+
+
 # ---- processes --------------------------------------------------------------------------
 @dataclass
 class Proc:
@@ -131,7 +144,7 @@ def process_running(name: str) -> bool:
     if not IS_WINDOWS:
         return False
     try:
-        out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {name}"],
+        out = subprocess.run([system_tool("tasklist"), "/FI", f"IMAGENAME eq {name}"],
                              capture_output=True, text=True, creationflags=NO_WINDOW, encoding="locale").stdout
         return name in out.lower()
     except FileNotFoundError:
@@ -186,18 +199,33 @@ def launch(exe: str | Path, cwd: str | Path, new_console: bool = False) -> None:
     subprocess.Popen([str(exe)], cwd=str(cwd), creationflags=flags)
 
 
+def system_tool(name: str) -> str:
+    """A Windows tool's full path in System32 ("netsh" -> C:\\Windows\\System32\\netsh.exe).
+
+    Windows looks for a bare name in the app's own folder and the current
+    folder before System32. Players run the exe from Downloads, where a
+    planted netsh.exe would run instead of the real one (elevated, through
+    run_as_admin). A name with a folder, and any name off Windows, is returned as is.
+    """
+    folder = system_folder() if IS_WINDOWS and not os.path.dirname(name) else None
+    if folder is None:
+        return name
+    return str(folder / (name if name.lower().endswith(".exe") else name + ".exe"))
+
+
 def run(cmd: list[str], timeout: float | None = None) -> str | None:
     """Run a console command with no visible window and return its output, or None if it couldn't run.
 
     Inputs:
+        cmd: A bare program name is a Windows tool, run from System32 (system_tool).
         timeout: Seconds before giving up (None = wait as long as it takes).
 
     Outputs:
         stdout decoded in the Windows locale encoding, as the tools write it.
     """
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, creationflags=NO_WINDOW,
-                              encoding="locale").stdout
+        return subprocess.run([system_tool(cmd[0]), *cmd[1:]], capture_output=True, text=True, timeout=timeout,
+                              creationflags=NO_WINDOW, encoding="locale").stdout
     except Exception:
         return None
 
@@ -242,10 +270,13 @@ def open_url(url: str) -> None:
 def run_as_admin(exe: str, args: str) -> bool:
     """Start a program elevated, through the UAC prompt. True if it started (the user said yes).
 
+    Inputs:
+        exe: A bare name is a Windows tool, run from System32 (system_tool).
+
     Side effects: Shows the UAC prompt and starts the program with admin rights.
     """
     if not IS_WINDOWS:
         return False
     import ctypes
     # ShellExecuteW returns a value > 32 on success
-    return ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, args, None, 0) > 32
+    return ctypes.windll.shell32.ShellExecuteW(None, "runas", system_tool(exe), args, None, 0) > 32

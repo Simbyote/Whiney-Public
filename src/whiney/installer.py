@@ -378,6 +378,21 @@ class Installer:
         self.ui.log(f"{count} mods ready.")
         return None
 
+    @staticmethod
+    def removed_mods(info: dict[str, Any]) -> list[str]:
+        """The update's removed mods; raises UnsafeArchive unless each is a plain folder name.
+
+        Each name becomes a file name in ZIP_DIR that is deleted, so a name with
+        a folder, "..", or a drive in it would delete a file outside ZIP_DIR.
+        """
+        removed = info.get("removed", [])
+        if not isinstance(removed, list):
+            raise util.UnsafeArchive(f"'removed' is a {type(removed).__name__}, not a list")
+        for name in removed:
+            if not isinstance(name, str) or name in ("", ".", "..") or any(c in name for c in "/\\:"):
+                raise util.UnsafeArchive(f"{name!r} isn't a mod folder name")
+        return removed
+
     def get_update(self) -> StepResult:
         reuse = False
         if paths.UPDATE_ARCHIVE.exists():
@@ -395,8 +410,15 @@ class Installer:
         info_file = root / paths.UPDATE_INFO
         if info_file.exists():
             info.update(json.loads(info_file.read_text(encoding="locale")))
+        try:
+            removed = self.removed_mods(info)
+        except util.UnsafeArchive as e:
+            paths.UPDATE_ARCHIVE.unlink()
+            shutil.rmtree(paths.UPDATE_EXTRACT, ignore_errors=True)
+            raise Abort(f"The update's list of removed mods can't be used safely ({e}). It was deleted; "
+                        f"don't use another copy of it. Tell {self.cfg['author']}.") from e
         count = self.build_zips(root, paths.ZIP_DIR)
-        for name in info.get("removed", []):
+        for name in removed:
             for ext in vortex.ARCHIVE_EXTS:
                 stale = paths.ZIP_DIR / f"{name}{ext}"
                 if stale.exists():
