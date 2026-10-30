@@ -141,6 +141,8 @@ def sandbox(request, tmp_path, monkeypatch):
         "BASE_READY": box.work / "ToVortex" / ".base_ready",
         "UPDATE_ARCHIVE": box.work / "modpack_update.tar.gz",
         "UPDATE_EXTRACT": box.work / "update_extracted",
+        "REPAIR_DIR": box.work / "Repair",
+        "REPAIR_EXTRACT": box.work / "repair_extracted",
         "INSTALLED_MARKER": box.work / "installed.json",
         "SETTINGS_FILE": box.work / "settings.json",
         "CRASH_HISTORY": box.work / "crash_history.json",

@@ -94,6 +94,10 @@ class DoctorPage(Page):
             label(inner, r.detail, 12, MUTED, wrap=10).pack(fill="x", pady=(2, 0))
         if r.fix and r.level != "OK":
             label(inner, "→ " + r.fix, 12, color, wrap=10).pack(fill="x", pady=(4, 0))
+        if r.mods and r.level != "OK":
+            mods = list(r.mods)
+            btn(inner, f"Repair {len(mods)} mod{'s' if len(mods) > 1 else ''}", lambda: self.app.repair(mods),
+                "primary" if r.level == "FAIL" else "normal", width=130, height=30).pack(anchor="w", pady=(8, 0))
 
     def copy(self) -> None:
         if self.results:

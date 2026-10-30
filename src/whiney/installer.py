@@ -22,6 +22,8 @@ Flow:
     plan(mode) picks the steps; Installer.run does them in order:
     check -> download -> unpack -> prepare -> update -> vortex -> order -> verify,
     then writes installed.json. "update" mode skips straight to the update.
+    "repair" mode reinstalls only the given mods (the Doctor's Repair button):
+    gather their zips -> vortex -> verify just them; installed.json is left alone.
 """
 import json
 import os
@@ -33,10 +35,11 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, BinaryIO, Literal, Protocol
 
-from whiney import config, doctor, paths, skyrim, util, vortex, winapi
+from whiney import config, doctor, pack_mods, paths, skyrim, util, vortex, winapi
 
 STEP_NAMES = {
     "check":    "Check your PC",
+    "gather":   "Find the mods to repair",
     "download": "Download the mod pack",
     "unpack":   "Unpack it",
     "prepare":  "Prepare mods for Vortex",
@@ -47,7 +50,7 @@ STEP_NAMES = {
 }
 
 
-Mode = Literal["fresh", "update"]     # full pack (+ update), or the update only
+Mode = Literal["fresh", "update", "repair"]     # full pack (+ update), the update only, or some mods again
 StepResult = Literal["skipped"] | None   # a step returns "skipped" when its work was already done
 
 
@@ -78,6 +81,8 @@ class Cancelled(Abort):
 
 def plan(mode: Mode) -> list[str]:
     has_update = bool(config.CONFIG.get("update_file_id"))
+    if mode == "repair":
+        return ["gather", "vortex", "verify"]
     if mode == "update":
         steps = ["check"] + (["update"] if has_update else []) + ["vortex", "order", "verify"]
     else:
@@ -88,13 +93,15 @@ def plan(mode: Mode) -> list[str]:
 
 class Installer:
     def __init__(self, ui: InstallerUI, mode: Mode, game: Path | str | None = None, apply_inis: bool = True,
-                 cancel: threading.Event | None = None) -> None:
-        """mode: 'fresh' (full pack [+update]) or 'update' (update only).
+                 cancel: threading.Event | None = None, repair: Sequence[str] = ()) -> None:
+        """mode: 'fresh' (full pack [+update]), 'update' (update only) or 'repair' (the `repair` mods only).
 
         cancel: a threading.Event the GUI sets to cancel; checked between steps,
             during downloads, unpacking, zipping and checksums, and after every wait.
+        repair: pack mod folder names (files.json keys) to reinstall, in 'repair' mode.
         """
         self.ui, self.mode = ui, mode
+        self.repair_mods = list(repair)
         self.game = Path(game) if game else None
         self.cancel = cancel or threading.Event()
         self.want_inis = apply_inis
@@ -254,8 +261,10 @@ class Installer:
                     f"again. If this keeps happening, ask {self.cfg['author']} for the latest app: it and "
                     "the file on Drive may be out of step.")
 
-    def extract(self, archive: Path, dest: Path) -> None:
+    def extract(self, archive: Path, dest: Path, keep: Callable[[str], bool] | None = None) -> None:
         """Unpack a .tar.gz into a fresh dest. Plain files and folders only, all inside dest.
+
+        keep: unpack only the entries whose name it accepts (repair: some mods); None unpacks all.
 
         Every entry is checked before it's written, on every Python: tarfile's
         "data" filter is missing before 3.10.12 / 3.11.4, so the check can't
@@ -268,17 +277,20 @@ class Installer:
         total = archive.stat().st_size
         try:
             with open(archive, "rb") as raw, tarfile.open(fileobj=raw, mode="r:gz") as tar:
-                self._extract_members(tar, raw, total, dest)
+                self._extract_members(tar, raw, total, dest, keep)
         except util.UnsafeArchive as e:
             archive.unlink()
             raise Abort(f"{archive.name} contains something that can't be unpacked safely ({e}). It was "
                         f"deleted; don't use another copy of it. Tell {self.cfg['author']}.") from e
         self.ui.progress(1, "Unpacked.")
 
-    def _extract_members(self, tar: tarfile.TarFile, raw: BinaryIO, total: int, dest: Path) -> None:
+    def _extract_members(self, tar: tarfile.TarFile, raw: BinaryIO, total: int, dest: Path,
+                         keep: Callable[[str], bool] | None = None) -> None:
         last = 0.0
         for member in tar:
             self._stop_if_cancelled()
+            if keep is not None and not keep(member.name):
+                continue
             if not (member.isfile() or member.isdir()):
                 raise util.UnsafeArchive(f"{member.name!r} is a link or special file")
             util.safe_member_path(dest, member.name)
@@ -429,14 +441,105 @@ class Installer:
         self.ui.log(f"{count} new or updated mods ready.")
         return None
 
+    # -- repair: some mods again -----------------------------------------------------
+    @staticmethod
+    def _mod_of(name: str) -> str | None:
+        """The mod folder an archive entry belongs to ("mods/<mod>/a.esp" -> "<mod>"); None outside one."""
+        parts = name.replace("\\", "/").strip("/").split("/")
+        if parts[0] == pack_mods.ARC_ROOT:
+            parts = parts[1:]
+        return parts[0] if len(parts) > 1 else None
+
+    def _zips_from(self, archive: Path, mods: list[str]) -> list[str]:
+        """Unpack just `mods` from a pack archive and zip each into REPAIR_DIR. Returns the ones it doesn't hold."""
+        wanted = set(mods)
+        self.extract(archive, paths.REPAIR_EXTRACT, keep=lambda name: self._mod_of(name) in wanted)
+        root = paths.REPAIR_EXTRACT / pack_mods.ARC_ROOT
+        if not root.is_dir():
+            root = paths.REPAIR_EXTRACT
+        self.build_zips(root, paths.REPAIR_DIR)
+        shutil.rmtree(paths.REPAIR_EXTRACT, ignore_errors=True)
+        return [m for m in mods if not any((paths.REPAIR_DIR / f"{m}{ext}").exists() for ext in vortex.ARCHIVE_EXTS)]
+
+    def gather(self) -> StepResult:
+        """A zip of each mod being repaired, in REPAIR_DIR: from ToVortex, else from the pack's archives.
+
+        ToVortex counts only while this pack is what's installed (its zips are
+        then this pack's). Otherwise the update comes first, since a mod it
+        changed is older in the full pack; each archive is downloaded again if
+        it's gone (the player is asked first) and checked against its SHA-256.
+        """
+        if not self.repair_mods:
+            raise Abort("Nothing to repair.")
+        shutil.rmtree(paths.REPAIR_DIR, ignore_errors=True)
+        paths.REPAIR_DIR.mkdir(parents=True)
+        need = []
+        current = config.install_state(self.req) == "installed"
+        for mod in self.repair_mods:
+            made = next((paths.ZIP_DIR / f"{mod}{ext}" for ext in vortex.ARCHIVE_EXTS
+                         if (paths.ZIP_DIR / f"{mod}{ext}").exists()), None) if current else None
+            if made:
+                shutil.copy2(made, paths.REPAIR_DIR / made.name)
+                self.ui.log(f"{vortex.nice_mod_name(mod)}: ready from the last install")
+            else:
+                need.append(mod)
+        sources = [(paths.ARCHIVE, self.cfg["drive_file_id"], "mod pack", self.req.get("base_sha256"))]
+        if self.cfg.get("update_file_id"):
+            sources.insert(0, (paths.UPDATE_ARCHIVE, self.cfg["update_file_id"], "update",
+                               self.req.get("update_sha256")))
+        for archive, file_id, label, sha in sources:
+            if not need:
+                break
+            self._stop_if_cancelled()
+            if archive == paths.ARCHIVE and archive.exists() and (not paths.ARCHIVE_ID.exists()
+                                                                  or paths.ARCHIVE_ID.read_text(encoding="locale")
+                                                                  .strip() != self.base):
+                archive.unlink()                # an older full pack's
+            if not archive.exists():
+                names = "\n".join(f"- {vortex.nice_mod_name(m)}" for m in need)
+                if not self.ui.ask(f"To repair these mods, the {label} has to be downloaded again:\n\n{names}\n\n"
+                                   "Download it now?", True):
+                    raise Abort(f"Repair stopped: the {label} isn't on this PC any more, and it's needed "
+                                "for these mods.")
+                self.download(file_id, archive, label)
+            self.check_download(archive, sha, label)
+            if archive == paths.ARCHIVE:
+                paths.ARCHIVE_ID.write_text(self.base, encoding="locale")
+            before = len(need)
+            need = self._zips_from(archive, need)
+            self.ui.log(f"{before - len(need)} mod(s) taken from the {label}")
+        if need:
+            raise Abort("These mods aren't in the mod pack, so they can't be repaired from it:\n"
+                        + "\n".join(f"- {vortex.nice_mod_name(m)}" for m in need)
+                        + f"\n\nTell {self.cfg['author']}: the app and the pack on Drive may be out of step.")
+        return None
+
+    def verify_repair(self) -> StepResult:
+        """Every file the repaired mods deployed on the maintainer's PC is now in the game folder."""
+        inventory = {m: files for m, files in config.load_inventory().items() if m in self.repair_mods}
+        if not self.game or not inventory:
+            self.ui.log("Skipped the final check (no Skyrim folder, or no file list in this build).")
+            return "skipped"
+        problems = [f for f in doctor.check_deployment(self.game, inventory) if f.level != "OK"]
+        if problems:
+            for f in problems:
+                self.ui.log(f"[{f.level}] {f.title}")
+                for line in f.detail.splitlines():
+                    self.ui.log(f"    {line}")
+            raise Abort("Some repaired mods still aren't fully in the game:\n\n"
+                        + "\n".join(f.detail for f in problems) + "\n\n" + problems[0].fix)
+        self.ui.log(f"All {len(inventory)} repaired mod(s) are in place.")
+        return None
+
     def vortex(self) -> StepResult:
-        zips = [f for f in paths.ZIP_DIR.iterdir() if f.suffix.lower() in vortex.ARCHIVE_EXTS] \
-            if paths.ZIP_DIR.is_dir() else []
+        folder = paths.REPAIR_DIR if self.mode == "repair" else paths.ZIP_DIR
+        zips = [f for f in folder.iterdir() if f.suffix.lower() in vortex.ARCHIVE_EXTS] \
+            if folder.is_dir() else []
         removed = (self.update_info or {}).get("removed", []) if self.mode == "update" else []
         if not zips and not removed:
             self.ui.log("Nothing to install in Vortex this time.")
             return "skipped"
-        winapi.open_path(paths.ZIP_DIR)
+        winapi.open_path(folder)
         if not vortex.vortex_running() and not vortex.launch_vortex():
             self.ui.log("Couldn't find Vortex automatically. Please open it yourself.")
         body = (f"A folder with {len(zips)} mod file(s) just opened, and Vortex should be starting.\n\n"
@@ -449,11 +552,15 @@ class Installer:
         if removed:
             body += "\n6. Remove these mods in Vortex (select > Remove), then Deploy:\n" + \
                     "\n".join(f"      - {vortex.nice_mod_name(n)}" for n in removed)
+        if self.mode == "repair":
+            body += ("\n\nIf the Doctor said a mod's files were found in another folder, reinstalling doesn't "
+                     "move them: in Vortex, set that mod's Mod Type to match "
+                     f"{self.cfg['author']}'s (show the Mod Type column), then Deploy.")
         body += "\n\nThen CLOSE Vortex completely (check the system tray too)."
         self.ui.progress(None, "Waiting for you to finish in Vortex...")
         while True:
             self.ui.wait_for_user("Your turn: install in Vortex", body, "Done, Vortex is closed",
-                                  [("Open the mod folder again", lambda: winapi.open_path(paths.ZIP_DIR)),
+                                  [("Open the mod folder again", lambda: winapi.open_path(folder)),
                                    ("Open Vortex", vortex.launch_vortex)])
             self._stop_if_cancelled()
             if not vortex.vortex_running():
@@ -527,7 +634,8 @@ class Installer:
             "update": self.get_update,
             "vortex": self.vortex,
             "order": self.order,
-            "verify": self.verify,
+            "verify": self.verify_repair if self.mode == "repair" else self.verify,
+            "gather": self.gather,
         }
         if self.mode == "update":
             if paths.ZIP_DIR.exists():
@@ -535,5 +643,8 @@ class Installer:
             paths.ZIP_DIR.mkdir(parents=True)
         for key in plan(self.mode):
             self._step(key, actions[key])
+        if self.mode == "repair":           # some mods again: what's installed hasn't changed
+            self.ui.progress(1, "Repaired!")
+            return
         config.mark_installed(self.req)
         self.ui.progress(1, "All done!")

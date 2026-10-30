@@ -532,3 +532,114 @@ def test_an_update_downloaded_earlier_is_reused_if_the_player_agrees(sandbox, up
     ui = FakeUI(answers=[True])
     installer.Installer(ui, "update", game=player).get_update()
     assert sandbox.gdown.requested == [] and ui.asked[0].startswith("Found an update you already downloaded")
+
+
+# ---- repair: some mods again (the Doctor's Repair button) ----------------------------------
+ALPHA = "Alpha-11111-1-0-1700000000"
+BETA = "Beta-22222-2-0-1700000000"
+
+
+def _repair(player, mods, answers=(), on_wait=()):
+    ui = FakeUI(answers=answers, on_wait=on_wait)
+    return ui, installer.Installer(ui, "repair", game=player, repair=mods)
+
+
+def _zip_names(mod):
+    with zipfile.ZipFile(paths.REPAIR_DIR / f"{mod}.zip") as zf:
+        return sorted(zf.namelist())
+
+
+def test_repair_plan_gathers_hands_off_and_checks():
+    assert installer.plan("repair") == ["gather", "vortex", "verify"]
+
+
+def test_repair_reuses_the_last_installs_zip_when_this_pack_is_installed(sandbox, drive, player):
+    installer.Installer(FakeUI(on_wait=[closes_vortex]), "fresh", game=player).run()
+    sandbox.gdown.requested.clear()
+    ui, job = _repair(player, [ALPHA])
+    job.gather()
+    assert sorted(p.name for p in paths.REPAIR_DIR.iterdir()) == [f"{ALPHA}.zip"]
+    assert sandbox.gdown.requested == [] and ui.asked == []
+    assert "Alpha: ready from the last install" in ui.logs
+
+
+def test_repair_downloads_the_pack_when_nothing_is_left_and_unpacks_only_those_mods(sandbox, drive, player):
+    _record_checksums(sandbox, base_sha256=_sha(drive))
+    ui, job = _repair(player, [ALPHA])
+    job.gather()
+    assert sandbox.gdown.requested == [BASE_ID] and "the mod pack has to be downloaded again" in ui.asked[0]
+    assert sorted(p.name for p in paths.REPAIR_DIR.iterdir()) == [f"{ALPHA}.zip"]
+    assert _zip_names(ALPHA) == ["Alpha.esp", "textures/a.dds"]
+    assert not paths.REPAIR_EXTRACT.exists()
+    # The pack is kept, as an install keeps it, so the next repair needn't download it
+    assert paths.ARCHIVE.exists() and paths.ARCHIVE_ID.read_text(encoding="locale") == config.base_id()
+
+
+def test_repair_ignores_zips_left_from_another_pack(sandbox, drive, player):
+    paths.ZIP_DIR.mkdir(parents=True)
+    (paths.ZIP_DIR / f"{ALPHA}.zip").write_bytes(b"an older pack's zip")    # nothing installed for this pack
+    _, job = _repair(player, [ALPHA], answers=[True])
+    job.gather()
+    assert _zip_names(ALPHA) == ["Alpha.esp", "textures/a.dds"]
+
+
+def test_repair_stops_if_the_player_wont_download_the_pack(sandbox, drive, player):
+    _, job = _repair(player, [ALPHA], answers=[False])
+    with pytest.raises(installer.Abort, match="isn't on this PC any more"):
+        job.gather()
+    assert sandbox.gdown.requested == []
+
+
+def test_repair_checks_a_pack_left_on_disk_against_its_checksum(sandbox, drive, player):
+    _record_checksums(sandbox, base_sha256=_sha(drive))
+    paths.WORK_DIR.mkdir()
+    paths.ARCHIVE.write_bytes(b"not the pack")
+    paths.ARCHIVE_ID.write_text(config.base_id(), encoding="locale")
+    _, job = _repair(player, [ALPHA])
+    with pytest.raises(installer.Abort, match="doesn't match"):
+        job.gather()
+
+
+def test_repair_takes_a_mod_the_update_changed_from_the_update(sandbox, update, player):
+    _, job = _repair(player, [BETA])
+    job.gather()
+    assert sandbox.gdown.requested == [UPDATE_ID]                 # the full pack's Beta is older
+    with zipfile.ZipFile(paths.REPAIR_DIR / f"{BETA}.zip") as zf:
+        assert zf.read("Beta.esp") == b"B, changed"
+
+
+def test_repair_of_a_mod_the_pack_doesnt_have_says_so(sandbox, update, player):
+    _, job = _repair(player, ["Nope-99999-1-0-1700000000"])
+    with pytest.raises(installer.Abort, match="aren't in the mod pack"):
+        job.gather()
+    assert sandbox.gdown.requested == [UPDATE_ID, BASE_ID]
+
+
+def test_a_whole_repair_hands_over_just_those_mods_and_checks_their_files(sandbox, drive, player):
+    util.write_json(sandbox.packinfo / paths.INVENTORY_FILE,
+                    {ALPHA: ["Data/Alpha.esp", "Data/textures/a.dds"], BETA: ["Data/Beta.esp"]})
+
+    def player_reinstalls_alpha():
+        (player / "Data" / "textures").mkdir(parents=True, exist_ok=True)
+        (player / "Data" / "textures" / "a.dds").write_bytes(b"tex")
+
+    ui, job = _repair(player, [ALPHA], on_wait=[player_reinstalls_alpha])
+    job.run()
+    assert _states(ui) == {"gather": "done", "vortex": "done", "verify": "done"}
+    assert str(paths.REPAIR_DIR) in sandbox.winapi.opened
+    assert "A folder with 1 mod file(s)" in ui.waits[0][1] and "Mod Type" in ui.waits[0][1]
+    assert "All 1 repaired mod(s) are in place." in ui.logs
+    assert not paths.INSTALLED_MARKER.exists()                     # a repair isn't an install
+
+
+def test_a_repair_that_didnt_take_stops_and_says_where_the_files_went(sandbox, drive, player):
+    util.write_json(sandbox.packinfo / paths.INVENTORY_FILE, {ALPHA: ["Data/Alpha.esp", "Data/textures/a.dds"]})
+
+    def vortex_puts_it_in_the_game_folder():
+        (player / "textures").mkdir()
+        (player / "textures" / "a.dds").write_bytes(b"tex")
+
+    _, job = _repair(player, [ALPHA], on_wait=[vortex_puts_it_in_the_game_folder])
+    with pytest.raises(installer.Abort, match="found in the game folder instead of Data") as e:
+        job.run()
+    assert "Mod Type" in str(e.value)

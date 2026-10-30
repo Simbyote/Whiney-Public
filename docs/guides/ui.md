@@ -90,6 +90,17 @@ the page. Each step is re-runnable: completed work is detected and skipped.
 On success `installed.json` records the full pack and update installed; Home and
 the sidebar then read "Installed".
 
+**Repair** (the Doctor's **Repair** button) runs the installer's `repair` mode on
+just that card's mods and starts at once; the page shows these steps instead:
+
+| Step | Shown as | What it does |
+| --- | --- | --- |
+| `gather` | Find the mods to repair | One zip per mod in `Downloads\Whiney\Repair`. Taken from `ToVortex` while this pack is the one installed; otherwise unpacked from the update (first: a mod it changed is older in the full pack) and then the full pack, each checked against its SHA-256 and, if it's gone, downloaded again after asking. Only those mods' entries are unpacked. A mod in neither stops the repair |
+| `vortex` | Install in Vortex (your turn) | As above, on the `Repair` folder; also says that a mod whose files went to another folder needs its Mod Type matched, which reinstalling doesn't change |
+| `verify` | Make sure everything's in place | The deployment check on just the repaired mods; anything still missing stops with where the files are and the fix |
+
+A repair doesn't touch `installed.json`, the load order or the INIs.
+
 ---
 
 ## Doctor
@@ -101,7 +112,7 @@ Runs `doctor.run_all` and shows one card per finding, most severe first.
 | **Run checks** / **Run again** | Runs every check group: basics (Vortex, game, version, SKSE, Creation Club, ENB), plugins (missing files, masters, order, the 254 full-plugin limit, sync with the pack), SKSE plugins (Address Library, crash logger), deployment (every file the pack's mods deploy is in the game folder: FAIL for a mod with none, WARN for one missing some; missing files found in another folder are named with where they are, which means Vortex gave the mod another Mod Type than the maintainer's), mods (pack mods present in Vortex), system (disk space, Vortex open) |
 | Counts | "N problems" (FAIL), "N warnings" (WARN), "N fine" (OK) |
 | Status line | "Found problems…", "Nothing serious…" or "Everything looks healthy." |
-| Finding card | Area, title, detail lines, and "→ fix" for WARN and FAIL |
+| Finding card | Area, title, detail lines, and "→ fix" for WARN and FAIL. A deployment card also has **Repair N mod(s)**: opens Install & Update and reinstalls just those mods (see Repair above) |
 | **Copy report** | The full text report (`doctor.report_text`) to the clipboard |
 | **Save report** | Writes `Downloads\Whiney\doctor_report_<date>-<time>.txt` and opens the folder |
 

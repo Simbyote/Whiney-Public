@@ -8,9 +8,10 @@ Purpose:
     preflight subset before installing; the Doctor tab runs everything.
 
 Main package:
-    Finding(level, area, title, detail, fix): level is "OK" | "WARN" | "FAIL".
+    Finding(level, area, title, detail, fix, mods): level is "OK" | "WARN" | "FAIL".
     FAIL means the game will crash or the install will fail; WARN is worth a
-    look; fix is shown only for WARN and FAIL.
+    look; fix is shown only for WARN and FAIL. mods names the pack mods a
+    deployment finding is about, which the Doctor tab offers to repair.
 
 Flow:
     1. Read plugin headers (masters, ESM/ESL flags) straight from the TES4 record.
@@ -44,6 +45,7 @@ class Finding:
     title: str
     detail: str = ""     # more lines under the title
     fix: str = ""        # what to do about it; never shown for OK
+    mods: tuple[str, ...] = ()   # pack mod folders (files.json keys) a deployment finding is about: Repair
 
     def __post_init__(self) -> None:
         if self.level not in LEVELS:
@@ -353,16 +355,16 @@ def check_deployment(game: Path, inventory: dict[str, list[str]]) -> list[Findin
                                      for m in absent[:15])
                            + ("\n..." if len(absent) > 15 else ""),
                            "In Vortex: Mods > select them > Enable > Deploy. If a mod isn't listed in "
-                           "Vortex, run Install again."
-                           + (mod_type_fix if any(moved[m] for m in absent) else "")))
+                           "Vortex, click Repair to install just these again."
+                           + (mod_type_fix if any(moved[m] for m in absent) else ""), tuple(absent)))
     if partial:
         lines = [f"{vortex.nice_mod_name(m)}: {len(missing[m])} of {len(inventory[m])} files missing "
                  f"(e.g. {missing[m][0]}){where(m)}" for m in partial[:12]]
         out.append(Finding("WARN", "Deployment", f"{len(partial)} pack mod(s) are missing files",
                            "\n".join(lines) + ("\n..." if len(partial) > 12 else ""),
-                           "In Vortex: click Deploy. If files are still missing, reinstall the mod: drag its "
-                           "zip from Downloads\\Whiney\\ToVortex into Vortex and choose Replace."
-                           + (mod_type_fix if any(moved[m] for m in partial) else "")))
+                           "In Vortex: click Deploy. If files are still missing, click Repair to install "
+                           "these mods again."
+                           + (mod_type_fix if any(moved[m] for m in partial) else ""), tuple(partial)))
     return out
 
 

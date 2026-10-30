@@ -95,3 +95,8 @@ def test_cancelling_releases_an_install_waiting_for_the_player(gui):
 
 def test_a_crash_with_two_loggers_logs_offers_both(gui):
     assert gui["crash"]["buttons"][:2] == ["Open crash log", "Log 2"]
+
+
+def test_the_doctors_repair_button_starts_a_repair_of_that_cards_mods(gui):
+    assert gui["doctor"] == {"repair_buttons": ["Repair 1 mod"], "page": "install",
+                             "started": {"mode": "repair", "mods": ["Alpha-11111-1-0-1700000000"]}}

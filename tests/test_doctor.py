@@ -161,6 +161,8 @@ def test_a_mod_with_none_of_its_files_fails_and_one_missing_some_warns(sandbox, 
                               ("WARN", "1 pack mod(s) are missing files")]
     assert found[0].detail == "SKSE"
     assert found[1].detail == "Alpha: 1 of 2 files missing (e.g. Data/textures/a.dds)"
+    # The Doctor tab's Repair button reinstalls exactly these
+    assert found[0].mods == ("SKSE-30379-2-2-6-1700000000",) and found[1].mods == ("Alpha-11111-1-0-1700000000",)
 
 
 TOGETHER = {"Skyrim Together Reborn-69993-1-6-1700000000": ["Data/SkyrimTogetherReborn/SkyrimTogether.exe",

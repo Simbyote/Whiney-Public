@@ -12,6 +12,8 @@ Flow:
     1. build(): mode choice, step list, log, progress, action area.
     2. start(): run installer.Installer(GuiBridge(...)) in the background.
     3. The bridge updates steps, log and progress; finished() reports the result.
+    repair(mods), from the Doctor's Repair button, runs the installer's
+    "repair" mode on just those mods and starts straight away.
     Cancel (shown while it runs) sets the installer's cancel event; it stops
     at the next safe point and a later Start resumes.
 """
@@ -23,7 +25,7 @@ from typing import Any, Literal
 
 import customtkinter as ctk
 
-from whiney import config, installer, paths, winapi
+from whiney import config, installer, paths, vortex, winapi
 from whiney.ui.theme import CARD_HI, FAIL_C, GOLD, GOLD_DIM, LINE, MUTED, OK_C, PANEL, TEXT, F
 from whiney.ui.widgets import AppShell, Card, Page, Widget, box, btn, label, set_on
 
@@ -91,14 +93,28 @@ class InstallPage(Page):
         self.log.insert("end", "Details show up here while it works.\n")
         self.log.configure(state="disabled")
         self.running = False
+        self.repair_mods: list[str] = []         # set by repair(): the next run is a repair of these
 
     def on_show(self) -> None:
         if not self.running:
+            self.repair_mods = []
             self.mode.set("Update only" if self.app.status.get("state") == "update" else "Full install")
             self.draw_steps()
 
     def mode_key(self) -> installer.Mode:
+        if self.repair_mods:
+            return "repair"
         return "update" if self.mode.get() == "Update only" else "fresh"
+
+    def repair(self, mods: Sequence[str]) -> None:
+        """Reinstall just these pack mods: gather their zips, the Vortex hand-off, then check them."""
+        if self.running:
+            self.app.tell("Busy", "An install is already running. Repair once it's finished.")
+            return
+        self.repair_mods = list(mods)
+        self.start()
+        if self.running:
+            self.add_log("Repairing: " + ", ".join(vortex.nice_mod_name(m) for m in self.repair_mods))
 
     def draw_steps(self) -> None:
         for w in self.steps_box.winfo_children():
@@ -193,7 +209,8 @@ class InstallPage(Page):
         except OSError:
             pass
         bridge = GuiBridge(self.app, self, self.cancel_event)
-        job = installer.Installer(bridge, mode, game=game, apply_inis=self.inis.get(), cancel=self.cancel_event)
+        job = installer.Installer(bridge, mode, game=game, apply_inis=self.inis.get(), cancel=self.cancel_event,
+                                  repair=self.repair_mods)
 
         def work() -> None:
             try:
@@ -223,6 +240,7 @@ class InstallPage(Page):
 
     def finished(self, ok: bool, message: str | None, cancelled: bool = False) -> None:
         self.running = False
+        repaired, self.repair_mods = self.repair_mods, []
         self.cancel_btn.pack_forget()
         set_on(self.start_btn, True)
         self.start_btn.configure(text="Start")
@@ -233,6 +251,12 @@ class InstallPage(Page):
             self.status_lbl.configure(text="Cancelled.")
             self.add_log(f"\n{message}")
             self.app.toast("Install cancelled")
+        elif ok and repaired:
+            self.status_lbl.configure(text="Repaired!")
+            self.add_log(f"\nRepaired {len(repaired)} mod(s).")
+            self.app.refresh_status()
+            self.app.tell("Repaired", f"{len(repaired)} mod(s) are back in the game. Run the Doctor again to "
+                                      "check everything else.")
         elif ok:
             self.status_lbl.configure(text="All done!")
             self.add_log("\nAll done! In Vortex > Plugins, keep Autosort OFF so it keeps this order.")
@@ -242,8 +266,9 @@ class InstallPage(Page):
         else:
             self.status_lbl.configure(text="Stopped.")
             self.add_log(f"\nStopped: {message}")
-            self.app.tell("Install stopped", f"{message}\n\nThe log on this page (also saved to "
-                                              f"Downloads\\Whiney\\install_log.txt) shows what happened.")
+            self.app.tell("Repair stopped" if repaired else "Install stopped",
+                          f"{message}\n\nThe log on this page (also saved to "
+                          f"Downloads\\Whiney\\install_log.txt) shows what happened.")
 
 
 class GuiBridge:

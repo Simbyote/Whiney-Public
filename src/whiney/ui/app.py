@@ -225,6 +225,13 @@ class App(ctk.CTk):
         if run and hasattr(page, "run"):
             page.run()
 
+    def repair(self, mods: Sequence[str]) -> None:
+        """Open Install & Update and reinstall just these pack mods (the Doctor's Repair button)."""
+        self.show("install")
+        page = self.pages["install"]
+        assert isinstance(page, InstallPage)
+        page.repair(mods)
+
     def refresh_status(self) -> None:
         def done(status: AppStatus) -> None:
             self.status = status

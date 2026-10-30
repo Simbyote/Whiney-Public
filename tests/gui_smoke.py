@@ -21,6 +21,7 @@ errors = []
 home_seen: dict = {}
 install_seen: dict = {}
 crash_seen: dict = {}
+doctor_seen: dict = {}
 threading.excepthook = lambda a: errors.append(
     "thread: " + "".join(traceback.format_exception(a.exc_type, a.exc_value, a.exc_traceback)))
 app = app_module.App()
@@ -50,6 +51,7 @@ def finish(extra=None):
                       "home": home_seen,
                       "install": install_seen,
                       "crash": crash_seen,
+                      "doctor": doctor_seen,
                       "errors": errors + ([extra] if extra else [])}))
     app.destroy()
 
@@ -62,6 +64,10 @@ def exercise():
         app.pages["doctor"].show(doctor.run_all())
     except Exception:
         errors.append("doctor cards: " + traceback.format_exc())
+    try:
+        click_repair()
+    except Exception:
+        errors.append("doctor repair: " + traceback.format_exc())
     try:
         logs = []
         for name in ("crash-2026-10-30.log", "Crash_2026_10_30.txt"):    # two crash loggers' logs
@@ -112,6 +118,33 @@ def exercise():
     except Exception:
         errors.append("install cancel: " + traceback.format_exc())
         app.after(300, finish)
+
+
+def click_repair():
+    """A Deployment card's Repair button opens Install & Update on a repair of that card's mods.
+
+    The Install page's start() is stubbed: a real one would ask to download the pack.
+    """
+    from whiney import doctor
+    page, install = app.pages["doctor"], app.pages["install"]
+    page.show([doctor.Finding("FAIL", "Deployment", "1 pack mod(s) aren't deployed in the game", "Alpha", "fix",
+                              ("Alpha-11111-1-0-1700000000",))])
+    stack, buttons = [page.list], []
+    while stack:
+        w = stack.pop()
+        stack.extend(w.winfo_children())
+        if type(w).__name__ == "CTkButton" and str(w.cget("text")).startswith("Repair"):
+            buttons.append(w)
+    doctor_seen["repair_buttons"] = [str(b.cget("text")) for b in buttons]
+    started = {}
+    install.start = lambda: started.update(mode=install.mode_key(), mods=list(install.repair_mods))
+    try:
+        buttons[0].invoke()
+    finally:
+        del install.start
+        install.repair_mods = []
+    doctor_seen["started"] = started
+    doctor_seen["page"] = app.current
 
 
 def cancel_a_wait():
