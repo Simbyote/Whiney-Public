@@ -1,0 +1,55 @@
+name: Bug report
+description: Something in Whiney doesn't work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems go through the Security tab (Report a vulnerability), not here.
+  - type: dropdown
+    id: section
+    attributes:
+      label: Section
+      options:
+        - Home
+        - Install & Update
+        - Doctor
+        - Crash Squatch
+        - Host Server
+        - Manage
+        - Maintainer side (build.bat, pack_mods.bat, pack_update.bat)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      placeholder: "I clicked Start in Install & Update; it stopped at 'Unpack it' with …"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor report
+      description: Doctor > Run checks > Copy report, pasted here.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        For a crash: attach the crash log (Crash Squatch > Open crash log) and say which crash logger you use.
+        For an app or install error: attach Downloads\Whiney\app_log.txt or install_log.txt.
+  - type: input
+    id: version
+    attributes:
+      label: Whiney version or commit
+      placeholder: "the date under the pack name on Home, or a commit hash"

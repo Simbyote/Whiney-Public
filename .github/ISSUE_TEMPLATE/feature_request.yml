@@ -1,0 +1,21 @@
+name: Feature request
+description: An idea for Whiney
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What's hard or impossible today, and for whom (players, the maintainer, hosts)?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: How you'd like it to work. Mock-ups welcome.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Anything you tried or considered instead.

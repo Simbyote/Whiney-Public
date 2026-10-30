@@ -23,7 +23,6 @@ Vortex mods into archives and builds the exe.
 | Run the tests | `guides/pytest.md` |
 | Know what each test file covers | `guides/tests.md` |
 | Build the exe, pack mods, publish an update (maintainer) | `guides/build.md` |
-| Make the repository public without publishing anything private (once) | `guides/publishing.md` |
 | Contribute: setup, what a change needs, pull requests | `../CONTRIBUTING.md` |
 | Install and use the app (players' guide, shipped with the exe) | `../release/README.txt` |
 
@@ -36,7 +35,6 @@ docs/
     guides/
         build.md            maintainer's steps: build.bat, pack_mods.bat, pack_update.bat, Drive
         make.md             the Makefile: every dev command by a short name
-        publishing.md       making the repository public: what stays private, one-time steps
         pytest.md           running the tests: software and live modes, the sandbox
         tests.md            what each test file covers
         ui.md               each section of the exe: controls, states, files written

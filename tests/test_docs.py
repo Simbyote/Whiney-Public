@@ -23,6 +23,7 @@ DOCS = ROOT / "docs"
 
 
 def _docstring(path: Path) -> str:
+
     return ast.get_docstring(ast.parse(path.read_text(encoding="utf-8"))) or ""
 
 
