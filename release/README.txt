@@ -61,9 +61,14 @@ HOME
 INSTALL & UPDATE
   Mode: "Full install" (first time) or "Update only" (only
   what changed since the full pack). Start runs these steps:
-    1. Check the PC (Doctor's basic checks).
+    1. Check the PC (Doctor's basic checks). If every mod
+       is already in the game, it offers to skip straight to
+       step 4.
     2. Download the mod pack, unpack it, and prepare one zip
-       per mod.
+       per mod. Already have the pack file? It's found in
+       Downloads automatically, or click "I already have the
+       file..." and pick it (e.g. from a USB stick). Either
+       way it's checked first, so a wrong file isn't used.
     3. Install in Vortex - the one manual step:
        a. A folder of mod files opens and Vortex starts.
        b. In Vortex, open Mods. In the folder press Ctrl+A and

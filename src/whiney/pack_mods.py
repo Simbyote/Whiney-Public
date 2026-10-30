@@ -11,8 +11,8 @@ Main package:
     modpack.tar.gz / modpack_update.tar.gz: mod folders under mods/, plus
     mods/_update_info.json (added, changed, removed) in an update.
     pack_manifest.json: per-mod fingerprints of the last full pack, which
-    the next update is compared against, and the archive's SHA-256.
-    last_update.json: the last update's contents and its archive's SHA-256.
+    the next update is compared against, and the archive's SHA-256 and size.
+    last_update.json: the last update's contents and its archive's SHA-256 and size.
     build.bat bakes both checksums into the exe, which checks every download.
 
 Flow:
@@ -196,7 +196,7 @@ def full_pack(src: Path, out: Path, level: int) -> bool:
         return False
     digest = archive_checksum(out)
     MANIFEST.write_text(json.dumps({"created": time.strftime("%Y-%m-%d %H:%M"), "sha256": digest,
-                                    "mods": prints}, indent=2), encoding="locale")
+                                    "size": out.stat().st_size, "mods": prints}, indent=2), encoding="locale")
     if LAST_UPDATE.exists():
         LAST_UPDATE.unlink()                   # a fresh full pack has no update yet
     print(f"Saved {MANIFEST.name} (remembers what's in this full pack).")
@@ -246,8 +246,8 @@ def update_pack(src: Path, out: Path, level: int) -> bool:
     if not write_tar(src, added + changed, out, level, extra=info):
         return False
     digest = archive_checksum(out)
-    LAST_UPDATE.write_text(json.dumps({"created": created, "sha256": digest, **info}, indent=2),
-                           encoding="locale")
+    LAST_UPDATE.write_text(json.dumps({"created": created, "sha256": digest, "size": out.stat().st_size, **info},
+                                      indent=2), encoding="locale")
     print("\nNext:")
     print(f"  1. Upload {out.name} to Drive. If an older update is already there, use")
     print("     'Manage versions > Upload new version' so the file ID stays the same.")

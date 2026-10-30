@@ -139,6 +139,8 @@ def sandbox(request, tmp_path, monkeypatch):
         "EXTRACT_DIR": box.work / "extracted",
         "ZIP_DIR": box.work / "ToVortex",
         "BASE_READY": box.work / "ToVortex" / ".base_ready",
+        "UPDATE_READY": box.work / "ToVortex" / ".update_ready",
+        "UPDATE_ZIPS": box.work / "ToVortex_Update",
         "UPDATE_ARCHIVE": box.work / "modpack_update.tar.gz",
         "UPDATE_EXTRACT": box.work / "update_extracted",
         "REPAIR_DIR": box.work / "Repair",

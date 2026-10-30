@@ -90,7 +90,12 @@ def test_home_opens_the_installation_guide(gui):
 
 
 def test_cancelling_releases_an_install_waiting_for_the_player(gui):
-    assert gui["install"] == {"wait": "cancelled", "action_card_shown": False}
+    assert (gui["install"]["wait"], gui["install"]["action_card_shown"]) == ("cancelled", False)
+
+
+def test_install_can_use_a_pack_file_the_player_already_has(gui):
+    assert gui["install"]["picked"] == {"file": "modpack.tar.gz", "label_names_it": True, "clear_shown": True}
+    assert gui["install"]["cleared"] is True
 
 
 def test_a_crash_with_two_loggers_logs_offers_both(gui):

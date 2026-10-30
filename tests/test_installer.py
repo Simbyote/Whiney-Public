@@ -20,6 +20,7 @@ tarfile's "data" filter.
 import hashlib
 import io
 import json
+import shutil
 import tarfile
 import threading
 import zipfile
@@ -472,7 +473,10 @@ def test_an_update_brings_new_and_changed_mods_and_drops_removed_ones(sandbox, u
     (paths.ZIP_DIR / "Alpha-11111-1-0-1700000000.zip").write_bytes(b"left from the full pack")
     inst = installer.Installer(FakeUI(), "update", game=player)
     inst.get_update()
-    assert sorted(p.name for p in paths.ZIP_DIR.iterdir()) == \
+    assert sorted(p.name for p in paths.ZIP_DIR.glob("*.zip")) == \
+        ["Beta-22222-2-0-1700000000.zip", "Gamma-33333-1-0-1700000000.zip"]
+    # The player drags just the update's zips, from their own folder
+    assert sorted(p.name for p in paths.UPDATE_ZIPS.iterdir()) == \
         ["Beta-22222-2-0-1700000000.zip", "Gamma-33333-1-0-1700000000.zip"]
     assert inst.update_info["removed"] == ["Alpha-11111-1-0-1700000000"]
     assert not paths.UPDATE_ARCHIVE.exists()                     # cleaned up once unpacked
@@ -567,7 +571,7 @@ def test_repair_downloads_the_pack_when_nothing_is_left_and_unpacks_only_those_m
     _record_checksums(sandbox, base_sha256=_sha(drive))
     ui, job = _repair(player, [ALPHA])
     job.gather()
-    assert sandbox.gdown.requested == [BASE_ID] and "the mod pack has to be downloaded again" in ui.asked[0]
+    assert sandbox.gdown.requested == [BASE_ID] and "the mod pack is needed again" in ui.asked[0]
     assert sorted(p.name for p in paths.REPAIR_DIR.iterdir()) == [f"{ALPHA}.zip"]
     assert _zip_names(ALPHA) == ["Alpha.esp", "textures/a.dds"]
     assert not paths.REPAIR_EXTRACT.exists()
@@ -643,3 +647,120 @@ def test_a_repair_that_didnt_take_stops_and_says_where_the_files_went(sandbox, d
     with pytest.raises(installer.Abort, match="found in the game folder instead of Data") as e:
         job.run()
     assert "Mod Type" in str(e.value)
+
+
+# ---- using what the player already has ----------------------------------------------------
+def test_a_matching_pack_in_downloads_is_used_instead_of_downloading(sandbox, drive, player):
+    _record_checksums(sandbox, base_sha256=_sha(drive), base_size=drive.stat().st_size)
+    paths.DOWNLOADS.mkdir(parents=True)
+    (paths.DOWNLOADS / "other.tar.gz").write_bytes(b"x" * drive.stat().st_size)   # same size, other file
+    (paths.DOWNLOADS / "modpack (1).tar.gz").write_bytes(drive.read_bytes())       # the browser renamed it
+    ui = FakeUI()
+    installer.Installer(ui, "fresh", game=player).get_base()
+    assert sandbox.gdown.requested == []
+    assert paths.ARCHIVE.read_bytes() == drive.read_bytes()
+    assert not (paths.DOWNLOADS / "modpack (1).tar.gz").exists()           # moved in, as the fallback does
+    assert (paths.DOWNLOADS / "other.tar.gz").exists()
+    assert any("Found the mod pack in Downloads (modpack (1).tar.gz)" in line for line in ui.logs)
+
+
+def test_downloads_isnt_searched_without_a_checksum_to_recognise_the_pack(sandbox, drive, player):
+    paths.DOWNLOADS.mkdir(parents=True)
+    (paths.DOWNLOADS / "modpack.tar.gz").write_bytes(b"something else")
+    installer.Installer(FakeUI(), "fresh", game=player).get_base()
+    assert sandbox.gdown.requested == [BASE_ID]
+    assert (paths.DOWNLOADS / "modpack.tar.gz").read_bytes() == b"something else"
+
+
+def test_a_pack_file_the_player_picked_is_copied_not_downloaded(sandbox, drive, player):
+    _record_checksums(sandbox, base_sha256=_sha(drive))
+    usb = sandbox.root / "usb" / "pack.tar.gz"
+    usb.parent.mkdir()
+    usb.write_bytes(drive.read_bytes())
+    ui = FakeUI()
+    installer.Installer(ui, "fresh", game=player, pack_file=usb).get_base()
+    assert sandbox.gdown.requested == [] and paths.ARCHIVE.read_bytes() == drive.read_bytes()
+    assert usb.exists()                                                      # theirs stays where it was
+    assert "Using your copy of the mod pack: pack.tar.gz (no download needed)." in ui.logs
+
+
+def test_a_picked_file_that_isnt_the_pack_stops_without_touching_it(sandbox, drive, player):
+    _record_checksums(sandbox, base_sha256=_sha(drive))
+    wrong = sandbox.root / "wrong.tar.gz"
+    wrong.write_bytes(b"not it")
+    with pytest.raises(installer.Abort, match="isn't .*'s mod pack or update"):
+        installer.Installer(FakeUI(), "fresh", game=player, pack_file=wrong).get_base()
+    assert wrong.read_bytes() == b"not it" and sandbox.gdown.requested == []
+
+
+def test_a_picked_update_is_used_for_the_update(sandbox, update, player):
+    _record_checksums(sandbox, base_sha256=_sha(sandbox.gdown.files[BASE_ID]), update_sha256=_sha(update))
+    installer.Installer(FakeUI(), "update", game=player, pack_file=update).get_update()
+    assert sandbox.gdown.requested == [] and (paths.UPDATE_ZIPS / "Gamma-33333-1-0-1700000000.zip").exists()
+
+
+def test_update_only_keeps_tovortex_so_a_full_reinstall_downloads_nothing(sandbox, update, player):
+    util.write_json(sandbox.packinfo / paths.REQ_FILE,
+                    {**util.read_json(sandbox.packinfo / paths.REQ_FILE), "update_version": "2026-10-20 12:00"})
+    installer.Installer(FakeUI(on_wait=[closes_vortex]), "fresh", game=player).run()     # full pack + update
+    installer.Installer(FakeUI(on_wait=[closes_vortex]), "update", game=player).run()    # the update again
+    assert paths.BASE_READY.exists()                                    # ToVortex survived "Update only"
+    sandbox.gdown.requested.clear()
+    ui = FakeUI(on_wait=[closes_vortex])
+    installer.Installer(ui, "fresh", game=player).run()
+    assert sandbox.gdown.requested == []
+    assert _states(ui)["download"] == "skipped" and _states(ui)["update"] == "skipped"
+    assert sorted(p.name for p in paths.ZIP_DIR.glob("*.zip")) == \
+        ["Beta-22222-2-0-1700000000.zip", "Gamma-33333-1-0-1700000000.zip"]
+
+
+def test_running_update_only_again_rebuilds_the_hand_off_without_downloading(sandbox, update, player):
+    util.write_json(sandbox.packinfo / paths.REQ_FILE,
+                    {**util.read_json(sandbox.packinfo / paths.REQ_FILE), "update_version": "2026-10-20 12:00"})
+    installer.Installer(FakeUI(), "update", game=player).get_update()
+    sandbox.gdown.requested.clear()
+    shutil.rmtree(paths.UPDATE_ZIPS)
+    inst = installer.Installer(FakeUI(), "update", game=player)
+    assert inst.get_update() == "skipped" and sandbox.gdown.requested == []
+    assert sorted(p.name for p in paths.UPDATE_ZIPS.iterdir()) == \
+        ["Beta-22222-2-0-1700000000.zip", "Gamma-33333-1-0-1700000000.zip"]
+    assert inst.update_info["removed"] == ["Alpha-11111-1-0-1700000000"]
+
+
+# ---- every mod already in the game: straight to the load order and settings -----------------
+def _all_deployed(sandbox):
+    util.write_json(sandbox.packinfo / paths.INVENTORY_FILE, {ALPHA: ["Data/Alpha.esp"], BETA: ["Data/Beta.esp"]})
+
+
+def test_with_every_mod_in_the_game_install_skips_to_the_load_order(sandbox, drive, player):
+    _all_deployed(sandbox)
+    ui = FakeUI(answers=[True])
+    installer.Installer(ui, "fresh", game=player).run()
+    assert sandbox.gdown.requested == [] and ui.waits == []                 # no download, no Vortex hand-off
+    assert _states(ui) == {"check": "done", "download": "skipped", "unpack": "skipped", "prepare": "skipped",
+                           "vortex": "skipped", "order": "done", "verify": "done"}
+    assert "Every mod in the pack is already in your game" in ui.asked[0]
+    assert (paths.SKYRIM_APPDATA / "plugins.txt.bak").exists()             # the pack's order was applied
+    assert (skyrim.ini_dir() / "Skyrim.ini").read_text(encoding="utf-8") == "[pack]\n"
+    assert config.install_state() == "installed"
+
+
+def test_the_player_can_still_reinstall_every_mod(sandbox, drive, player):
+    _all_deployed(sandbox)
+    ui = FakeUI(answers=[False], on_wait=[closes_vortex])
+    installer.Installer(ui, "fresh", game=player).run()
+    assert sandbox.gdown.requested == [BASE_ID] and _states(ui)["download"] == "done"
+
+
+@pytest.mark.parametrize("missing", ["a file", "a plugin", "no file list"])
+def test_a_missing_mod_or_no_way_to_tell_runs_the_whole_install(sandbox, drive, player, missing):
+    _all_deployed(sandbox)
+    if missing == "a file":
+        util.write_json(sandbox.packinfo / paths.INVENTORY_FILE, {ALPHA: ["Data/Alpha.esp", "Data/textures/a.dds"]})
+    elif missing == "a plugin":
+        (player / "Data" / "Beta.esp").unlink()
+        util.write_json(sandbox.packinfo / paths.INVENTORY_FILE, {ALPHA: ["Data/Alpha.esp"]})
+    else:
+        (sandbox.packinfo / paths.INVENTORY_FILE).unlink()
+    inst = installer.Installer(FakeUI(), "fresh", game=player)
+    assert not inst.all_mods_in_place()

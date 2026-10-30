@@ -69,6 +69,10 @@ def exercise():
     except Exception:
         errors.append("doctor repair: " + traceback.format_exc())
     try:
+        pick_a_pack_file()
+    except Exception:
+        errors.append("install file picker: " + traceback.format_exc())
+    try:
         logs = []
         for name in ("crash-2026-10-30.log", "Crash_2026_10_30.txt"):    # two crash loggers' logs
             log = Path(tempfile.mkdtemp()) / name
@@ -145,6 +149,24 @@ def click_repair():
         install.repair_mods = []
     doctor_seen["started"] = started
     doctor_seen["page"] = app.current
+
+
+def pick_a_pack_file():
+    """Install's "I already have the file" (the dialog stubbed): the file is shown, used, and can be cleared."""
+    from whiney.ui.pages import install as install_module
+    page = app.pages["install"]
+    app.show("install")
+    real = install_module.filedialog.askopenfilename
+    install_module.filedialog.askopenfilename = lambda **kw: "/somewhere/modpack.tar.gz"
+    try:
+        page.pick_file()
+    finally:
+        install_module.filedialog.askopenfilename = real
+    app.update()
+    install_seen["picked"] = {"file": page.pack_file.name, "label_names_it": "modpack.tar.gz" in
+                              page.file_lbl.cget("text"), "clear_shown": page.clear_file_btn.winfo_manager() == "pack"}
+    page.clear_file()
+    install_seen["cleared"] = page.pack_file is None and page.clear_file_btn.winfo_manager() == ""
 
 
 def cancel_a_wait():

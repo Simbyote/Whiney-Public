@@ -78,12 +78,13 @@ def test_snapshot_carries_the_pack_checksums(sandbox, maintainer, update_file_id
     config_file.write_text(json.dumps({"drive_file_id": "drive-id", "update_file_id": update_file_id}),
                            encoding="utf-8")
     (sandbox.kit / "pack_manifest.json").write_text(
-        json.dumps({"created": "2026-10-01 12:00", "sha256": "aaa", "mods": {}}), encoding="utf-8")
+        json.dumps({"created": "2026-10-01 12:00", "sha256": "aaa", "size": 111, "mods": {}}), encoding="utf-8")
     (sandbox.kit / "last_update.json").write_text(
-        json.dumps({"created": "2026-10-20 12:00", "sha256": "bbb"}), encoding="utf-8")
+        json.dumps({"created": "2026-10-20 12:00", "sha256": "bbb", "size": 222}), encoding="utf-8")
     snapshot.snapshot()
     req = json.loads((sandbox.packinfo / paths.REQ_FILE).read_text(encoding="utf-8"))
     assert (req["base_sha256"], req["update_sha256"]) == ("aaa", update_sha)
+    assert (req["base_size"], req["update_size"]) == (111, 222 if update_sha else None)
 
 
 def test_the_inventory_records_only_what_is_deployed_and_where(sandbox, maintainer):

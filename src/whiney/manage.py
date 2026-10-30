@@ -105,7 +105,7 @@ def restore_settings() -> list[str]:
 def download_space() -> int:
     total = 0
     for p in (paths.ARCHIVE, paths.UPDATE_ARCHIVE, paths.ZIP_DIR, paths.EXTRACT_DIR, paths.UPDATE_EXTRACT,
-              paths.REPAIR_DIR, paths.REPAIR_EXTRACT):
+              paths.UPDATE_ZIPS, paths.REPAIR_DIR, paths.REPAIR_EXTRACT):
         if p.is_file():
             total += p.stat().st_size
         elif p.is_dir():
@@ -119,7 +119,8 @@ def free_space() -> int:
     for p in (paths.ARCHIVE, paths.ARCHIVE_ID, paths.UPDATE_ARCHIVE):
         if p.exists():
             p.unlink()
-    for d in (paths.ZIP_DIR, paths.EXTRACT_DIR, paths.UPDATE_EXTRACT, paths.REPAIR_DIR, paths.REPAIR_EXTRACT):
+    for d in (paths.ZIP_DIR, paths.EXTRACT_DIR, paths.UPDATE_EXTRACT, paths.UPDATE_ZIPS, paths.REPAIR_DIR,
+              paths.REPAIR_EXTRACT):
         shutil.rmtree(d, ignore_errors=True)
     return freed
 

@@ -69,6 +69,7 @@ the page. Each step is re-runnable: completed work is detected and skipped.
 | Element | Behavior |
 | --- | --- |
 | **Mode** | **Full install** (download the full pack, then the update if one is configured) or **Update only** (download and apply the update) |
+| **I already have the file...** | Picks a copy of the full pack or the update (e.g. from a USB stick) to use instead of downloading it; the label names it, **Don't use it** clears it. It's checked against the recorded SHA-256 when it's needed and copied, never moved; a file that is neither stops the install untouched |
 | "Use `{author}`'s game settings (INIs)" | When cleared, the pack's `Skyrim.ini` / `SkyrimCustom.ini` are not applied; the load order still is |
 | **Start** | Runs the steps below; reads **Working...** while running |
 | **Cancel** | Shown while running. After a confirmation ("Cancel install" / "Keep going") the installer stops at the next safe point: between steps, between download chunks (gdown's `cancel`), between archive entries, mods being zipped and checksum blocks, and at the Vortex and browser-download waits. The step shows as cancelled, the log says so, and nothing finished is lost: **Start** resumes, skipping finished steps. A cancelled download leaves no partial files |
@@ -78,12 +79,12 @@ the page. Each step is re-runnable: completed work is detected and skipped.
 
 | Step | Shown as | What it does |
 | --- | --- | --- |
-| `check` | Check your PC | Doctor's preflight checks; a failure asks whether to continue |
-| `download` | Download the mod pack | Downloads `modpack.tar.gz` from Google Drive and checks it against the SHA-256 recorded when it was packed; a mismatch deletes it and stops (the next **Start** downloads it again). If Drive refuses, the file page opens in the browser and the step waits for the download in `Downloads` (**It's downloaded**, **Open download page again**, **Open Downloads folder**) |
+| `check` | Check your PC | Doctor's preflight checks; a failure asks whether to continue. Then, when every plugin the pack enables is in `Data` and every file in `files.json` is in the game, it offers to skip straight to `order`: the steps from `download` to `vortex` show as skipped (builds without `files.json` always run in full) |
+| `download` | Download the mod pack | Skipped when `ToVortex` was prepared from this pack (`.base_ready`). Otherwise uses, in order: the picked file, a `.gz` in `Downloads` with the recorded SHA-256 (only files of the recorded size are hashed; moved in), or downloads `modpack.tar.gz` from Google Drive and checks it against the SHA-256 recorded when it was packed; a mismatch deletes it and stops (the next **Start** downloads it again). If Drive refuses, the file page opens in the browser and the step waits for the download in `Downloads` (**It's downloaded**, **Open download page again**, **Open Downloads folder**) |
 | `unpack` | Unpack it | Extracts the archive (needs ~3x its size free). An entry that would land outside the unpack folder, or a link, deletes the archive and stops the install |
 | `prepare` | Prepare mods for Vortex | One `.zip` per mod in `Downloads\Whiney\ToVortex` |
-| `update` | Get the latest update | Downloads `modpack_update.tar.gz` (or reuses one from an earlier run), checks its SHA-256 the same way, and applies it: new and changed mods are zipped, removed mods' zips are dropped |
-| `vortex` | Install in Vortex (your turn) | Opens the zip folder and starts Vortex, then waits for **Done, Vortex is closed**. Lists mods to remove in Vortex after an update. Repeats the wait while Vortex is still running |
+| `update` | Get the latest update | Skipped when `ToVortex` already holds this update (`.update_ready`). Otherwise gets `modpack_update.tar.gz` the same way as the pack (or reuses one from an earlier run), checks its SHA-256, and applies it to `ToVortex`: new and changed mods are zipped, removed mods' zips are dropped. **Update only** also copies the update's zips into `ToVortex_Update` for the hand-off, so `ToVortex` stays whole and a later Full install needn't download anything |
+| `vortex` | Install in Vortex (your turn) | Opens the zip folder (`ToVortex`; `ToVortex_Update` for Update only) and starts Vortex, then waits for **Done, Vortex is closed**. Lists mods to remove in Vortex after an update. Repeats the wait while Vortex is still running |
 | `order` | Set load order & settings | Copies the pack's `plugins.txt`, `loadorder.txt` and INIs into place; the replaced files are kept as `.bak` |
 | `verify` | Make sure everything's in place | Every plugin the pack enables must exist in `Data`; otherwise it stops and lists the missing ones. Then every file the pack's mods deployed on the maintainer's PC (`files.json`) must be in the game folder; missing ones are logged per mod and the player chooses to stop or finish anyway |
 

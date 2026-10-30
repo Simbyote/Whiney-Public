@@ -15,12 +15,15 @@ Flow:
     repair(mods), from the Doctor's Repair button, runs the installer's
     "repair" mode on just those mods and starts straight away.
     Cancel (shown while it runs) sets the installer's cancel event; it stops
-    at the next safe point and a later Start resumes.
+    at the next safe point and a later Start resumes. "I already have the
+    file" picks a copy of the pack (or update) to use instead of downloading.
 """
 import threading
 import time
 import traceback
 from collections.abc import Callable, Sequence
+from pathlib import Path
+from tkinter import filedialog
 from typing import Any, Literal
 
 import customtkinter as ctk
@@ -55,6 +58,15 @@ class InstallPage(Page):
         self.start_btn.pack(side="right")
         self.cancel_btn = btn(row, "Cancel", self.ask_cancel, width=110)      # shown while running
         self.cancel_event = threading.Event()
+        file_row = ctk.CTkFrame(top, fg_color="transparent")
+        file_row.pack(fill="x", padx=18, pady=(0, 12))
+        self.file_btn = btn(file_row, "I already have the file...", self.pick_file, "ghost", width=190, height=28)
+        self.file_btn.pack(side="left")
+        self.file_lbl = label(file_row, "Otherwise it's downloaded from Google Drive (a copy in Downloads is "
+                                        "found automatically).", 12, MUTED)
+        self.file_lbl.pack(side="left", padx=(10, 0))
+        self.clear_file_btn = btn(file_row, "Don't use it", self.clear_file, "ghost", width=100, height=28)
+        self.pack_file: Path | None = None
 
         mid = ctk.CTkFrame(body, fg_color="transparent")
         mid.pack(fill="both", expand=True, pady=(14, 0))
@@ -100,6 +112,22 @@ class InstallPage(Page):
             self.repair_mods = []
             self.mode.set("Update only" if self.app.status.get("state") == "update" else "Full install")
             self.draw_steps()
+
+    def pick_file(self) -> None:
+        """Choose a copy of the mod pack or update the player already has; it's checked when the install runs."""
+        chosen = filedialog.askopenfilename(title=f"Pick {config.CONFIG['author']}'s mod pack or update file",
+                                            filetypes=[("Mod pack", "*.tar.gz *.gz"), ("All files", "*.*")])
+        if chosen:
+            self.pack_file = Path(chosen)
+            self.file_lbl.configure(text=f"Using {self.pack_file.name} if it matches (checked when you click "
+                                         "Start). It's copied; yours stays where it is.", text_color=TEXT)
+            self.clear_file_btn.pack(side="left", padx=(10, 0))
+
+    def clear_file(self) -> None:
+        self.pack_file = None
+        self.file_lbl.configure(text="Otherwise it's downloaded from Google Drive (a copy in Downloads is found "
+                                     "automatically).", text_color=MUTED)
+        self.clear_file_btn.pack_forget()
 
     def mode_key(self) -> installer.Mode:
         if self.repair_mods:
@@ -197,6 +225,8 @@ class InstallPage(Page):
         self.cancel_btn.configure(text="Cancel")
         self.cancel_btn.pack(side="right", padx=(0, 8))
         self.mode.configure(state="disabled")
+        set_on(self.file_btn, False)
+        set_on(self.clear_file_btn, False)
         self.draw_steps()
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
@@ -210,7 +240,7 @@ class InstallPage(Page):
             pass
         bridge = GuiBridge(self.app, self, self.cancel_event)
         job = installer.Installer(bridge, mode, game=game, apply_inis=self.inis.get(), cancel=self.cancel_event,
-                                  repair=self.repair_mods)
+                                  repair=self.repair_mods, pack_file=self.pack_file)
 
         def work() -> None:
             try:
@@ -245,6 +275,8 @@ class InstallPage(Page):
         set_on(self.start_btn, True)
         self.start_btn.configure(text="Start")
         self.mode.configure(state="normal")
+        set_on(self.file_btn, True)
+        set_on(self.clear_file_btn, True)
         self.action.pack_forget()
         self.set_progress(1 if ok else 0, None)
         if cancelled:

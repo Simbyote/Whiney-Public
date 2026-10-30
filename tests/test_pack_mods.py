@@ -54,6 +54,7 @@ def test_full_pack_writes_archive_and_manifest_and_clears_the_last_update(sandbo
     manifest = json.loads(pack_mods.MANIFEST.read_text(encoding="utf-8"))
     assert sorted(manifest["mods"]) == ["Alpha-11111-1-0-1700000000", "Beta-22222-2-0-1700000000"]
     assert manifest["sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
+    assert manifest["size"] == out.stat().st_size        # lets players' installers spot a copy they have
     assert not pack_mods.LAST_UPDATE.exists()     # a fresh full pack has no update yet
 
 
@@ -75,6 +76,7 @@ def test_update_pack_carries_only_added_and_changed_mods(sandbox, staging):
     last = json.loads(pack_mods.LAST_UPDATE.read_text(encoding="utf-8"))
     assert last["created"] == info["created"]
     assert last["sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
+    assert last["size"] == out.stat().st_size
 
 
 def test_update_pack_with_no_changes_writes_nothing(sandbox, staging):

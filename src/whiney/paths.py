@@ -47,6 +47,10 @@ ARCHIVE_ID = WORK_DIR / "modpack.id"
 EXTRACT_DIR = WORK_DIR / "extracted"
 ZIP_DIR = WORK_DIR / "ToVortex"
 BASE_READY = ZIP_DIR / ".base_ready"
+# ToVortex also holds the update's zips once applied; this records which update and what it changed
+UPDATE_READY = ZIP_DIR / ".update_ready"
+# "Update only" hands the player just the update's zips, from here, and leaves ToVortex whole
+UPDATE_ZIPS = WORK_DIR / "ToVortex_Update"
 UPDATE_ARCHIVE = WORK_DIR / "modpack_update.tar.gz"
 UPDATE_EXTRACT = WORK_DIR / "update_extracted"
 UPDATE_INFO = "_update_info.json"

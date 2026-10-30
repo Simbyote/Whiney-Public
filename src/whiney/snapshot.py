@@ -9,7 +9,7 @@ Purpose:
 Main package:
     _packinfo/: plugins.txt, loadorder.txt, the shared INIs and
     requirements.json (base_version, update_version, base_sha256,
-    update_sha256, game_version, skse_dlls, cc_plugins, uses_enb, inis,
+    update_sha256, base_size, update_size, game_version, skse_dlls, cc_plugins, uses_enb, inis,
     mods, built). The checksums come from pack_manifest.json and
     last_update.json; the installer checks every download against them.
     files.json: for each pack mod, the files Vortex deployed from it into
@@ -137,6 +137,8 @@ def snapshot() -> None:
         "update_version": last_update.get("created") if cfg.get("update_file_id") else None,
         "base_sha256": manifest.get("sha256"),
         "update_sha256": last_update.get("sha256") if cfg.get("update_file_id") else None,
+        "base_size": manifest.get("size"),
+        "update_size": last_update.get("size") if cfg.get("update_file_id") else None,
         "game_version": winapi.file_version(game / "SkyrimSE.exe"),
         "skse_dlls": skyrim.skse_dlls(game),
         "skse_loader_version": winapi.file_version(loader) if loader.exists() else None,

@@ -22,6 +22,10 @@ Flow:
     plan(mode) picks the steps; Installer.run does them in order:
     check -> download -> unpack -> prepare -> update -> vortex -> order -> verify,
     then writes installed.json. "update" mode skips straight to the update.
+    When every pack mod is already in the game, the player can skip straight
+    to the load order and settings (download through vortex show as skipped).
+    An archive comes from, in order: the file the player picked, a copy in
+    Downloads, or Drive; each is checked against its SHA-256 (obtain).
     "repair" mode reinstalls only the given mods (the Doctor's Repair button):
     gather their zips -> vortex -> verify just them; installed.json is left alone.
 """
@@ -49,6 +53,9 @@ STEP_NAMES = {
     "verify":   "Make sure everything's in place",
 }
 
+
+# The steps that get mods into the game; skipped together when they're all there already
+MOD_STEPS = frozenset({"download", "unpack", "prepare", "update", "vortex"})
 
 Mode = Literal["fresh", "update", "repair"]     # full pack (+ update), the update only, or some mods again
 StepResult = Literal["skipped"] | None   # a step returns "skipped" when its work was already done
@@ -93,15 +100,20 @@ def plan(mode: Mode) -> list[str]:
 
 class Installer:
     def __init__(self, ui: InstallerUI, mode: Mode, game: Path | str | None = None, apply_inis: bool = True,
-                 cancel: threading.Event | None = None, repair: Sequence[str] = ()) -> None:
+                 cancel: threading.Event | None = None, repair: Sequence[str] = (),
+                 pack_file: Path | str | None = None) -> None:
         """mode: 'fresh' (full pack [+update]), 'update' (update only) or 'repair' (the `repair` mods only).
 
         cancel: a threading.Event the GUI sets to cancel; checked between steps,
             during downloads, unpacking, zipping and checksums, and after every wait.
         repair: pack mod folder names (files.json keys) to reinstall, in 'repair' mode.
+        pack_file: a copy of the full pack or the update the player already has, used
+            instead of downloading it when its SHA-256 matches; it is copied, never moved.
         """
         self.ui, self.mode = ui, mode
         self.repair_mods = list(repair)
+        self.pack_file = Path(pack_file) if pack_file else None
+        self._pack_file_sha: str | None = None
         self.game = Path(game) if game else None
         self.cancel = cancel or threading.Event()
         self.want_inis = apply_inis
@@ -229,6 +241,71 @@ class Installer:
                 self.ui.log(f"Using {found.name}")
                 return
 
+    def _sha(self, path: Path, what: str) -> str:
+        """SHA-256 of a file with a progress readout; cancellable."""
+        last = 0.0
+
+        def progress(fraction: float) -> None:
+            nonlocal last
+            self._stop_if_cancelled()
+            if time.time() - last > 0.2:
+                last = time.time()
+                self.ui.progress(fraction, f"Checking {what}...")
+        return util.sha256_file(path, progress)
+
+    def find_in_downloads(self, expected: str | None, size: int | None, label: str) -> Path | None:
+        """A file in Downloads that is this archive (same SHA-256), newest first; None without a checksum.
+
+        Only .gz files of the recorded size are hashed, when the size is known
+        (builds before it was recorded hash every .gz there).
+        """
+        if not expected or not paths.DOWNLOADS.is_dir():
+            return None
+        cands = [f for f in paths.DOWNLOADS.glob("*.gz") if f.is_file() and (size is None or f.stat().st_size == size)]
+        for f in sorted(cands, key=lambda f: f.stat().st_mtime, reverse=True):
+            if self._sha(f, f"{f.name} in Downloads") == expected.lower():
+                return f
+        return None
+
+    def obtain(self, file_id: str, archive: Path, label: str, expected: str | None, size: int | None) -> None:
+        """Put the full pack or the update at `archive`, checked: the player's file, a copy in Downloads, or Drive.
+
+        Inputs:
+            expected / size: the SHA-256 and size recorded when it was packed (None: unknown).
+
+        The picked file is copied (it may be on a USB stick, and stays theirs);
+        one found in Downloads is moved, as the browser fallback does. A file
+        the player picked that is neither the pack nor the update stops the install.
+        """
+        paths.WORK_DIR.mkdir(parents=True, exist_ok=True)
+        if self.pack_file:
+            if expected:
+                if self._pack_file_sha is None:
+                    self._pack_file_sha = self._sha(self.pack_file, f"your file {self.pack_file.name}")
+                use = self._pack_file_sha == expected.lower()
+                if not use and self._pack_file_sha not in {(self.req.get(k) or "").lower()
+                                                          for k in ("base_sha256", "update_sha256")}:
+                    raise Abort(f"The file you picked ({self.pack_file.name}) isn't {self.cfg['author']}'s mod "
+                                "pack or update for this app. It wasn't changed. Pick the right file, or clear "
+                                "it to download from Drive.")
+            else:
+                use = label == "mod pack"           # nothing to check it against: taken as the full pack
+                if use:
+                    self.ui.log(f"No checksum recorded for the {label}; your file can't be checked.")
+            if use:
+                self.ui.progress(None, f"Copying {self.pack_file.name}...")
+                shutil.copyfile(self.pack_file, archive)
+                self.ui.log(f"Using your copy of the {label}: {self.pack_file.name} (no download needed).")
+                return
+        found = self.find_in_downloads(expected, size, label)
+        if found:
+            shutil.move(str(found), str(archive))
+            self.ui.log(f"Found the {label} in Downloads ({found.name}): no download needed. It was moved "
+                        f"into {paths.WORK_DIR.name}.")
+            return
+        self.download(file_id, archive, label)
+        self.check_download(archive, expected, label)
+
     def check_download(self, archive: Path, expected: str | None, label: str) -> None:
         """Compare an archive with the SHA-256 recorded when it was packed (requirements.json).
 
@@ -243,16 +320,7 @@ class Installer:
         if not expected:
             self.ui.log(f"No checksum recorded for the {label}; skipping the integrity check.")
             return
-        last = 0.0
-
-        def progress(fraction: float) -> None:
-            nonlocal last
-            self._stop_if_cancelled()
-            if time.time() - last > 0.2:
-                last = time.time()
-                self.ui.progress(fraction, f"Checking the {label}...")
-
-        if util.sha256_file(archive, progress) == expected.lower():
+        if self._sha(archive, f"the {label}") == expected.lower():
             self.ui.log(f"The {label} matches the one {self.cfg['author']} packed.")
             return
         archive.unlink()
@@ -367,8 +435,8 @@ class Installer:
         if paths.ARCHIVE.exists():
             self.ui.log("Already downloaded, skipping.")
             return "skipped"
-        self.download(self.cfg["drive_file_id"], paths.ARCHIVE, "mod pack")
-        self.check_download(paths.ARCHIVE, self.req.get("base_sha256"), "mod pack")
+        self.obtain(self.cfg["drive_file_id"], paths.ARCHIVE, "mod pack", self.req.get("base_sha256"),
+                    self.req.get("base_size"))
         paths.ARCHIVE_ID.write_text(self.base, encoding="locale")
         return None
 
@@ -405,7 +473,44 @@ class Installer:
                 raise util.UnsafeArchive(f"{name!r} isn't a mod folder name")
         return removed
 
+    def _hand_off_update(self, mods: Sequence[str]) -> None:
+        """Update only: copy the update's zips from ToVortex into UPDATE_ZIPS, the folder the player drags from."""
+        shutil.rmtree(paths.UPDATE_ZIPS, ignore_errors=True)
+        paths.UPDATE_ZIPS.mkdir(parents=True)
+        for mod in mods:
+            for ext in vortex.ARCHIVE_EXTS:
+                if (paths.ZIP_DIR / f"{mod}{ext}").exists():
+                    shutil.copy2(paths.ZIP_DIR / f"{mod}{ext}", paths.UPDATE_ZIPS / f"{mod}{ext}")
+
+    def _update_ready(self) -> dict[str, Any] | None:
+        """What UPDATE_READY recorded, if ToVortex already holds this exe's update."""
+        ready = util.read_json(paths.UPDATE_READY, {}) or {}
+        version = self.req.get("update_version")
+        if not version or not isinstance(ready, dict) or ready.get("version") != version:
+            return None
+        info, mods = ready.get("info"), ready.get("mods")
+        if not isinstance(info, dict) or not isinstance(mods, list):
+            return None
+        try:
+            self.removed_mods(info)
+        except util.UnsafeArchive:
+            return None
+        return ready
+
     def get_update(self) -> StepResult:
+        """Apply the update to ToVortex (new and changed mods' zips in, removed ones out).
+
+        ToVortex keeps everything, so a later Full install needn't download
+        again; in "update" mode the player is handed just the update's zips
+        (UPDATE_ZIPS). Already applied (UPDATE_READY names this update): skipped.
+        """
+        ready = self._update_ready()
+        if ready:
+            self.update_info = ready["info"]
+            if self.mode == "update":
+                self._hand_off_update(ready["mods"])
+            self.ui.log("Found the update from a previous run, skipping the download.")
+            return "skipped"
         reuse = False
         if paths.UPDATE_ARCHIVE.exists():
             reuse = self.ui.ask(f"Found an update you already downloaded "
@@ -413,9 +518,11 @@ class Installer:
                                 f"Say No only if {self.cfg['author']} released a newer update since then.", True)
             if not reuse:
                 paths.UPDATE_ARCHIVE.unlink()
-        if not reuse:
-            self.download(self.cfg["update_file_id"], paths.UPDATE_ARCHIVE, "update")
-        self.check_download(paths.UPDATE_ARCHIVE, self.req.get("update_sha256"), "update")
+        if reuse:
+            self.check_download(paths.UPDATE_ARCHIVE, self.req.get("update_sha256"), "update")
+        else:
+            self.obtain(self.cfg["update_file_id"], paths.UPDATE_ARCHIVE, "update", self.req.get("update_sha256"),
+                        self.req.get("update_size"))
         self.extract(paths.UPDATE_ARCHIVE, paths.UPDATE_EXTRACT)
         root = self.find_pack_root(paths.UPDATE_EXTRACT)
         info: dict[str, Any] = {"added": [], "changed": [], "removed": []}
@@ -429,6 +536,8 @@ class Installer:
             shutil.rmtree(paths.UPDATE_EXTRACT, ignore_errors=True)
             raise Abort(f"The update's list of removed mods can't be used safely ({e}). It was deleted; "
                         f"don't use another copy of it. Tell {self.cfg['author']}.") from e
+        paths.ZIP_DIR.mkdir(parents=True, exist_ok=True)
+        mods = sorted(d.name for d in root.iterdir() if d.is_dir() and not d.name.startswith(vortex.SKIP_PREFIXES))
         count = self.build_zips(root, paths.ZIP_DIR)
         for name in removed:
             for ext in vortex.ARCHIVE_EXTS:
@@ -437,9 +546,26 @@ class Installer:
                     stale.unlink()
         shutil.rmtree(paths.UPDATE_EXTRACT, ignore_errors=True)
         paths.UPDATE_ARCHIVE.unlink()
+        util.write_json(paths.UPDATE_READY, {"version": self.req.get("update_version"), "info": info, "mods": mods})
+        if self.mode == "update":
+            self._hand_off_update(mods)
         self.update_info = info
         self.ui.log(f"{count} new or updated mods ready.")
         return None
+
+    def all_mods_in_place(self) -> bool:
+        """Every plugin the pack enables is in Data, and every file its mods deployed (files.json) is in the game.
+
+        False without a game, a pack load order or a files.json (an older build
+        can't tell), so the install then runs in full.
+        """
+        inventory = config.load_inventory()
+        plugins_txt = paths.PACKINFO / "plugins.txt"
+        if not self.game or not inventory or not plugins_txt.exists():
+            return False
+        if any(not (self.game / "Data" / p).exists() for p in skyrim.enabled_plugins(plugins_txt)):
+            return False
+        return all(f.level == "OK" for f in doctor.check_deployment(self.game, inventory))
 
     # -- repair: some mods again -----------------------------------------------------
     @staticmethod
@@ -483,11 +609,12 @@ class Installer:
                 self.ui.log(f"{vortex.nice_mod_name(mod)}: ready from the last install")
             else:
                 need.append(mod)
-        sources = [(paths.ARCHIVE, self.cfg["drive_file_id"], "mod pack", self.req.get("base_sha256"))]
+        sources = [(paths.ARCHIVE, self.cfg["drive_file_id"], "mod pack", self.req.get("base_sha256"),
+                    self.req.get("base_size"))]
         if self.cfg.get("update_file_id"):
             sources.insert(0, (paths.UPDATE_ARCHIVE, self.cfg["update_file_id"], "update",
-                               self.req.get("update_sha256")))
-        for archive, file_id, label, sha in sources:
+                               self.req.get("update_sha256"), self.req.get("update_size")))
+        for archive, file_id, label, sha, size in sources:
             if not need:
                 break
             self._stop_if_cancelled()
@@ -495,14 +622,16 @@ class Installer:
                                                                   or paths.ARCHIVE_ID.read_text(encoding="locale")
                                                                   .strip() != self.base):
                 archive.unlink()                # an older full pack's
-            if not archive.exists():
+            if archive.exists():
+                self.check_download(archive, sha, label)
+            else:
                 names = "\n".join(f"- {vortex.nice_mod_name(m)}" for m in need)
-                if not self.ui.ask(f"To repair these mods, the {label} has to be downloaded again:\n\n{names}\n\n"
-                                   "Download it now?", True):
+                if not self.pack_file and not self.ui.ask(
+                        f"To repair these mods, the {label} is needed again:\n\n{names}\n\nGet it now? "
+                        "(A copy in Downloads is used if there is one; otherwise it's downloaded.)", True):
                     raise Abort(f"Repair stopped: the {label} isn't on this PC any more, and it's needed "
                                 "for these mods.")
-                self.download(file_id, archive, label)
-            self.check_download(archive, sha, label)
+                self.obtain(file_id, archive, label, sha, size)
             if archive == paths.ARCHIVE:
                 paths.ARCHIVE_ID.write_text(self.base, encoding="locale")
             before = len(need)
@@ -532,7 +661,7 @@ class Installer:
         return None
 
     def vortex(self) -> StepResult:
-        folder = paths.REPAIR_DIR if self.mode == "repair" else paths.ZIP_DIR
+        folder = {"repair": paths.REPAIR_DIR, "update": paths.UPDATE_ZIPS}.get(self.mode, paths.ZIP_DIR)
         zips = [f for f in folder.iterdir() if f.suffix.lower() in vortex.ARCHIVE_EXTS] \
             if folder.is_dir() else []
         removed = (self.update_info or {}).get("removed", []) if self.mode == "update" else []
@@ -638,10 +767,21 @@ class Installer:
             "gather": self.gather,
         }
         if self.mode == "update":
-            if paths.ZIP_DIR.exists():
-                shutil.rmtree(paths.ZIP_DIR)
-            paths.ZIP_DIR.mkdir(parents=True)
-        for key in plan(self.mode):
+            shutil.rmtree(paths.UPDATE_ZIPS, ignore_errors=True)    # a hand-off from an earlier run
+        steps = plan(self.mode)
+        skip: frozenset[str] = frozenset()
+        if self.mode != "repair" and "check" in steps:
+            self._step("check", self.check)
+            steps.remove("check")
+            if self.all_mods_in_place() and self.ui.ask(
+                    "Every mod in the pack is already in your game. Skip straight to setting the load order "
+                    "and settings?\n\nSay No to install the mods again anyway.", True):
+                skip = MOD_STEPS
+                self.ui.log("All the pack's mods are already in the game: skipping to the load order and settings.")
+        for key in steps:
+            if key in skip:
+                self.ui.step(key, "skipped")
+                continue
             self._step(key, actions[key])
         if self.mode == "repair":           # some mods again: what's installed hasn't changed
             self.ui.progress(1, "Repaired!")
