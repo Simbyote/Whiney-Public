@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Whiney"
+description = "Installs, checks and runs a shared Skyrim SE mod pack through Vortex"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dynamic = ["version", "dependencies"]
+
+[project.scripts]
+whiney = "whiney.__main__:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "whiney.__version__" }
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ---- tests (docs/guides/pytest.md) ------------------------------------------
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+# A file read or written without an explicit encoding is an error: Windows defaults to
+# cp1252, so it passes on Linux and breaks there. Needs `python -X warn_default_encoding`
+# (make test and CI pass it) for Python to raise the warning at all
+filterwarnings = ["error::EncodingWarning"]
+markers = [
+    "software: contract test on fixtures; any OS, no Skyrim needed",
+    "live: read-only check against a real Windows install; writes artifacts",
+]
+
+# ---- lint (make lint) ---------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# pyflakes, pycodestyle, import order, bugbear, pyupgrade, pep8-naming
+select = ["F", "E", "W", "I", "B", "UP", "N"]
+ignore = [
+    "E741",   # `l` for "line" is used throughout the existing code
+    "N818",   # exceptions are named for what happened (Abort, UnsafeArchive), not suffixed with Error
+]
+
+# ---- types (make lint) ---------------------------------------------------------
+[tool.mypy]
+mypy_path = "src"
+packages = ["whiney"]
+python_version = "3.10"
+# The app runs on Windows: check winreg, ctypes.windll and os.startfile as they exist there
+platform = "win32"
+# Without this mypy skips the bodies of functions that have no annotations: most of the code
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+# The whole package is typed: every function annotated, so it stays that way
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[[tool.mypy.overrides]]
+# No type information published for these
+module = ["customtkinter.*", "gdown.*"]
+ignore_missing_imports = true
+
+[tool.ruff.lint.per-file-ignores]
+# Holds the Doctor report verbatim as golden text; its lines are as long as the report's
+"tests/test_doctor_report.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["whiney"]

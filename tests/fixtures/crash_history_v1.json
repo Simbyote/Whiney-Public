@@ -1,0 +1,30 @@
+[
+  {
+    "time": "2026-10-29 21:14:03",
+    "uptime": 1834.2,
+    "kind": "crash",
+    "analysis": {
+      "exception": "Error: EXCEPTION_ACCESS_VIOLATION at SkyrimSE.exe+0C3D4D4",
+      "suspects": [
+        {"file": "BadHooks.dll", "kind": "SKSE plugin", "score": 16, "mod": "Bad Hooks NG"},
+        {"file": "Immersive Bandits.esp", "kind": "plugin", "score": 3, "mod": null}
+      ],
+      "log": "C:\\Users\\Player\\Documents\\My Games\\Skyrim Special Edition\\SKSE\\Crashlogs\\crash-2026-10-29.log"
+    },
+    "summary": "Most likely involved: Bad Hooks NG (BadHooks.dll)\nAlso mentioned: Immersive Bandits.esp\nError: EXCEPTION_ACCESS_VIOLATION at SkyrimSE.exe+0C3D4D4"
+  },
+  {
+    "time": "2026-10-28 20:51:47",
+    "uptime": 96.0,
+    "kind": "crash",
+    "module": "BadHooks.dll",
+    "code": "0xc0000005",
+    "summary": "Windows says it crashed in: BadHooks.dll"
+  },
+  {
+    "kind": "hang",
+    "time": "2026-10-27 19:02:11",
+    "uptime": 412.5,
+    "summary": "Skyrim stopped responding (froze)."
+  }
+]

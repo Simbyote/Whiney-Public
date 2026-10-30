@@ -1,0 +1,26 @@
+Skyrim SSE v1.6.1170
+CrashLoggerSSE v1-15-0-0 Sep 20 2026 10:00:00
+
+Unhandled exception "EXCEPTION_ACCESS_VIOLATION" at 0x7FF6A1B2C3D4 SkyrimSE.exe+0C3D4D4	mov rax, [rcx+0x10]
+
+SYSTEM SPECS:
+	OS: Microsoft Windows 11 Pro v10.0.22631
+
+PROBABLE CALL STACK:
+	[ 0] 0x7FF6A1B2C3D4         SkyrimSE.exe+0C3D4D4	mov rax, [rcx+0x10]
+	[ 1] 0x7FFB10001234 BadHooks.dll+0001234
+	[ 2] 0x7FFB20002345 ntdll.dll+0002345
+	[ 3] 0x7FFB10005678 BadHooks.dll+0005678
+	[ 4] 0x7FFB30003456 OtherPlugin.dll+0003456
+
+REGISTERS:
+	RAX 0x0          (size_t) [0]
+	RCX 0x1F2E3D4C   (TESObjectREFR*)
+		Name: "Bandit Chief"
+		File: "Immersive Bandits.esp"
+		Modified by: Skyrim.esm -> Immersive Bandits.esp -> Bandit Patch.esp
+	RDX 0x2A3B4C5D   (TESNPC*)
+		File: "Skyrim.esm"
+
+MODULES:
+	SkyrimSE.exe 0x7FF6A0000000

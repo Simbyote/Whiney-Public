@@ -1,0 +1,7 @@
+# Development (make venv): the app plus the test and lint tools
+-r requirements.txt
+pytest==9.2.0
+ruff==0.17.3
+mypy==2.4.1
+types-psutil==7.2.2.20260906
+types-requests==2.33.0.20261006

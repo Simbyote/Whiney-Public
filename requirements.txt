@@ -1,0 +1,6 @@
+# Runtime dependencies of the app, pinned. Bump deliberately, then rebuild and test.
+# pyproject.toml reads this file, so it is the one place versions are set.
+gdown==6.5.1
+psutil==7.2.2
+requests==2.34.2
+customtkinter==5.2.2

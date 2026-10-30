@@ -1,0 +1,24 @@
+Event[0]:
+  Log Name: Application
+  Source: Application Error
+  Date: 2026-10-29T21:14:03.1230000Z
+  Event ID: 1000
+  Task: Application Crashing Events
+  Level: Error
+  Description:
+Faulting application name: Discord.exe, version: 1.0.9170.0, time stamp: 0x66a1b2c3
+Faulting module name: ntdll.dll, version: 10.0.22621.3958, time stamp: 0x3c4b9f5d
+Exception code: 0xc0000374
+
+Event[1]:
+  Log Name: Application
+  Source: Application Error
+  Date: 2026-10-29T20:51:47.5550000Z
+  Event ID: 1000
+  Task: Application Crashing Events
+  Level: Error
+  Description:
+Faulting application name: SkyrimSE.exe, version: 1.6.1170.0, time stamp: 0x6537b1a2
+Faulting module name: BadHooks.dll, version: 1.2.0.0, time stamp: 0x66f0c1d4
+Exception code: 0xc0000005
+Fault offset: 0x0000000000012345
