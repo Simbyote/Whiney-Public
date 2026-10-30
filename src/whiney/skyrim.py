@@ -87,6 +87,23 @@ def game_files(game: str | Path) -> set[str]:
     return found
 
 
+def game_files_by_name(game: str | Path) -> dict[str, list[str]]:
+    """Every file under the game folder, by lowercased file name -> its paths relative to the game folder.
+
+    Paths keep their case on disk, with "/" ("Data/SKSE/Plugins/x.dll"), so a
+    player can find them. Lets the Doctor say where a file that is missing
+    from its recorded place ended up instead.
+    """
+    game = Path(game)
+    found: dict[str, list[str]] = {}
+    for dirpath, _dirs, files in os.walk(game):
+        rel = Path(dirpath).relative_to(game).as_posix()
+        prefix = "" if rel == "." else rel + "/"
+        for f in files:
+            found.setdefault(f.lower(), []).append(prefix + f)
+    return found
+
+
 def find_game_dir() -> Path | None:
     """Saved choice first, then Steam libraries. None if not found."""
     saved = config.settings().get("game_dir")

@@ -163,6 +163,50 @@ def test_a_mod_with_none_of_its_files_fails_and_one_missing_some_warns(sandbox, 
     assert found[1].detail == "Alpha: 1 of 2 files missing (e.g. Data/textures/a.dds)"
 
 
+TOGETHER = {"Skyrim Together Reborn-69993-1-6-1700000000": ["Data/SkyrimTogetherReborn/SkyrimTogether.exe",
+                                                            "Data/SkyrimTogetherReborn/SkyrimTogetherServer.exe"]}
+
+
+def test_a_mod_deployed_to_the_game_folder_instead_of_data_says_where_its_files_are(sandbox, game):
+    # The player's Vortex gave Skyrim Together a game-folder Mod Type; the maintainer's put it in Data
+    _deploy(game, "SkyrimTogetherReborn/SkyrimTogether.exe", "SkyrimTogetherReborn/SkyrimTogetherServer.exe")
+    found = doctor.check_deployment(game, TOGETHER)
+    assert _levels(found) == [("FAIL", "1 pack mod(s) aren't deployed in the game")]
+    assert found[0].detail == "Skyrim Together Reborn: 2 found in the game folder instead of Data"
+    assert "Mod Type" in found[0].fix and "Reinstalling the mod doesn't change it" in found[0].fix
+
+
+@pytest.mark.parametrize("deployed, where", [
+    pytest.param("Data/skse64_loader.exe", "SKSE: 1 found in Data instead of the game folder", id="into-data"),
+    pytest.param("Data/Data/skse64_loader.exe", "SKSE: 1 found in Data\\Data instead of the game folder",
+                 id="data-twice"),
+])
+def test_a_mod_deployed_into_the_wrong_folder_is_found_there(sandbox, game, deployed, where):
+    _deploy(game, "Data/Alpha.esp", "Data/textures/a.dds", deployed)
+    found = doctor.check_deployment(game, INVENTORY)
+    assert found[0].detail == where
+
+
+def test_a_partly_missing_mod_says_where_the_rest_went(sandbox, game):
+    _deploy(game, "Data/Alpha.esp", "textures/a.dds", "skse64_loader.exe")
+    found = doctor.check_deployment(game, INVENTORY)
+    assert found[0].detail == ("Alpha: 1 of 2 files missing (e.g. Data/textures/a.dds); "
+                               "1 found in the game folder instead of Data")
+    assert "Mod Type" in found[0].fix
+
+
+def test_a_missing_file_matches_the_copy_whose_path_ends_like_it(sandbox, game):
+    # Another mod's readme.txt sits in Data; the moved one ends in SkyrimTogetherReborn/readme.txt
+    by_name = {"readme.txt": ["Data/Other/readme.txt", "SkyrimTogetherReborn/readme.txt"]}
+    assert doctor.misplaced(["Data/SkyrimTogetherReborn/readme.txt"], by_name) == ("Data", "", 1)
+    assert doctor.misplaced(["Data/SkyrimTogetherReborn/gone.dll"], by_name) is None
+
+
+def test_files_nowhere_in_the_game_get_no_mod_type_advice(sandbox, game):
+    found = doctor.check_deployment(game, TOGETHER)
+    assert found[0].detail == "Skyrim Together Reborn" and "Mod Type" not in found[0].fix
+
+
 def test_a_build_without_an_inventory_reports_nothing(sandbox, game):
     assert doctor.check_deployment(game, {}) == []
 

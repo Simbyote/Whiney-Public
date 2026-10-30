@@ -21,6 +21,7 @@ Flow:
 import shutil
 import struct
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -273,12 +274,53 @@ def check_skse_plugins(game: Path, req: dict) -> list[Finding]:
     return out
 
 
+def misplaced(missing: list[str], by_name: dict[str, list[str]]) -> tuple[str, str, int] | None:
+    """Where a mod's missing files are instead, when Vortex deployed them into another folder.
+
+    Inputs:
+        missing: The mod's recorded paths that aren't in the game folder ("Data/X/a.exe").
+        by_name: skyrim.game_files_by_name of the game folder.
+
+    Outputs:
+        (recorded folder, folder they are in, how many files moved that way), for
+        the move most of the files share; "" is the game folder itself. None if
+        no missing file is anywhere else. Each missing file is matched to the
+        copy whose path ends the most like the recorded one, so a common name
+        (readme.txt) in another mod rarely wins.
+    """
+    moves: Counter[tuple[str, str]] = Counter()
+    for rel in missing:
+        want = rel.split("/")
+        best: list[str] = []
+        shared = 0
+        for cand in by_name.get(want[-1].lower(), []):
+            have = cand.split("/")
+            n = 0
+            while n < min(len(want), len(have)) and want[-1 - n].lower() == have[-1 - n].lower():
+                n += 1
+            if n > shared:
+                best, shared = have, n
+        if best:
+            moves["/".join(want[:len(want) - shared]), "/".join(best[:len(best) - shared])] += 1
+    if not moves:
+        return None
+    (was, now), count = moves.most_common(1)[0]
+    return was, now, count
+
+
+def _folder(rel: str) -> str:
+    return rel.replace("/", "\\") if rel else "the game folder"
+
+
 def check_deployment(game: Path, inventory: dict[str, list[str]]) -> list[Finding]:
     """Compare the game folder with the files each pack mod deployed on the maintainer's PC (files.json).
 
     A mod with none of its files in place isn't deployed (FAIL: the install
     is incomplete); one missing some was deployed partly or overwritten by a
     file removal (WARN). Nothing is reported for a build without files.json.
+    Missing files found in another folder are named with where they are:
+    that's Vortex giving the mod another Mod Type than the maintainer's, which
+    reinstalling the mod doesn't change.
     """
     if not inventory:
         return []
@@ -289,22 +331,38 @@ def check_deployment(game: Path, inventory: dict[str, list[str]]) -> list[Findin
     if not missing:
         return [Finding("OK", "Deployment", f"All {len(inventory)} pack mods are deployed",
                         f"{total} files checked.")]
+    by_name = skyrim.game_files_by_name(game)
+    moved = {m: misplaced(files, by_name) for m, files in missing.items()}
+
+    def where(mod: str) -> str:
+        move = moved[mod]
+        if move is None:
+            return ""
+        was, now, count = move
+        return f"; {count} found in {_folder(now)} instead of {_folder(was)}"
+
+    mod_type_fix = (f" Files found in another folder mean Vortex gave the mod another Mod Type than "
+                    f"{config.CONFIG['author']}'s: in Vortex, Mods > show the Mod Type column, set it to match "
+                    "theirs, then Deploy. Reinstalling the mod doesn't change it.")
     out: list[Finding] = []
     absent = [m for m in missing if len(missing[m]) == len(inventory[m])]
     partial = [m for m in missing if m not in absent]
     if absent:
         out.append(Finding("FAIL", "Deployment", f"{len(absent)} pack mod(s) aren't deployed in the game",
-                           "\n".join(vortex.nice_mod_name(m) for m in absent[:15])
+                           "\n".join(vortex.nice_mod_name(m) + where(m).replace("; ", ": ", 1)
+                                     for m in absent[:15])
                            + ("\n..." if len(absent) > 15 else ""),
                            "In Vortex: Mods > select them > Enable > Deploy. If a mod isn't listed in "
-                           "Vortex, run Install again."))
+                           "Vortex, run Install again."
+                           + (mod_type_fix if any(moved[m] for m in absent) else "")))
     if partial:
         lines = [f"{vortex.nice_mod_name(m)}: {len(missing[m])} of {len(inventory[m])} files missing "
-                 f"(e.g. {missing[m][0]})" for m in partial[:12]]
+                 f"(e.g. {missing[m][0]}){where(m)}" for m in partial[:12]]
         out.append(Finding("WARN", "Deployment", f"{len(partial)} pack mod(s) are missing files",
                            "\n".join(lines) + ("\n..." if len(partial) > 12 else ""),
                            "In Vortex: click Deploy. If files are still missing, reinstall the mod: drag its "
-                           "zip from Downloads\\Whiney\\ToVortex into Vortex and choose Replace."))
+                           "zip from Downloads\\Whiney\\ToVortex into Vortex and choose Replace."
+                           + (mod_type_fix if any(moved[m] for m in partial) else "")))
     return out
 
 

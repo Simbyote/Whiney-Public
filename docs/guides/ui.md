@@ -98,7 +98,7 @@ Runs `doctor.run_all` and shows one card per finding, most severe first.
 
 | Element | Behavior |
 | --- | --- |
-| **Run checks** / **Run again** | Runs every check group: basics (Vortex, game, version, SKSE, Creation Club, ENB), plugins (missing files, masters, order, the 254 full-plugin limit, sync with the pack), SKSE plugins (Address Library, crash logger), deployment (every file the pack's mods deploy is in the game folder: FAIL for a mod with none, WARN for one missing some), mods (pack mods present in Vortex), system (disk space, Vortex open) |
+| **Run checks** / **Run again** | Runs every check group: basics (Vortex, game, version, SKSE, Creation Club, ENB), plugins (missing files, masters, order, the 254 full-plugin limit, sync with the pack), SKSE plugins (Address Library, crash logger), deployment (every file the pack's mods deploy is in the game folder: FAIL for a mod with none, WARN for one missing some; missing files found in another folder are named with where they are, which means Vortex gave the mod another Mod Type than the maintainer's), mods (pack mods present in Vortex), system (disk space, Vortex open) |
 | Counts | "N problems" (FAIL), "N warnings" (WARN), "N fine" (OK) |
 | Status line | "Found problems…", "Nothing serious…" or "Everything looks healthy." |
 | Finding card | Area, title, detail lines, and "→ fix" for WARN and FAIL |

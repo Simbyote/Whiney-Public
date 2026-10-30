@@ -91,6 +91,16 @@ def test_uses_enb_needs_the_dll_and_an_enb_ini(tmp_path):
     assert skyrim.uses_enb(game)
 
 
+def test_game_files_by_name_lists_every_copy_with_its_case_on_disk(tmp_path):
+    game = make_game(tmp_path / "game")
+    for rel in ("Data/SKSE/Plugins/Hook.dll", "Hook.DLL"):
+        (game / rel).parent.mkdir(parents=True, exist_ok=True)
+        (game / rel).write_bytes(b"")
+    by_name = skyrim.game_files_by_name(game)
+    assert sorted(by_name["hook.dll"]) == ["Data/SKSE/Plugins/Hook.dll", "Hook.DLL"]
+    assert by_name["skyrimse.exe"] == ["SkyrimSE.exe"]
+
+
 # ---- Steam (fake registry) -----------------------------------------------------------
 STEAM_KEY = r"Software\Valve\Steam"
 
