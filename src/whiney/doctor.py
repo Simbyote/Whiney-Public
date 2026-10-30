@@ -243,7 +243,8 @@ def check_plugins(game: Path, req: dict) -> list[Finding]:
                 detail.append("Same plugins, different order.")
             out.append(Finding("WARN", "Sync", "Your load order differs from the pack",
                                "\n".join(detail),
-                               "In multiplayer this causes desyncs. Install tab > Install again restores it."))
+                               "In multiplayer this causes desyncs. If every pack mod is in your game, "
+                               "Apply the pack's load order (here or on Home) fixes it; otherwise Install again."))
     return out
 
 
@@ -288,22 +289,28 @@ def misplaced(missing: list[str], by_name: dict[str, list[str]]) -> tuple[str, s
         the move most of the files share; "" is the game folder itself. None if
         no missing file is anywhere else. Each missing file is matched to the
         copy whose path ends the most like the recorded one, so a common name
-        (readme.txt) in another mod rarely wins.
+        (readme.txt) in another mod rarely wins. Only a move into or out of a
+        folder counts (game folder <-> Data, Data <-> Data/Data): that's what a
+        different Mod Type does. A same-named file in a sibling folder is
+        something else, e.g. two versions of a cache.
     """
     moves: Counter[tuple[str, str]] = Counter()
     for rel in missing:
         want = rel.split("/")
-        best: list[str] = []
+        best: tuple[str, str] | None = None
         shared = 0
         for cand in by_name.get(want[-1].lower(), []):
             have = cand.split("/")
             n = 0
             while n < min(len(want), len(have)) and want[-1 - n].lower() == have[-1 - n].lower():
                 n += 1
-            if n > shared:
-                best, shared = have, n
+            recorded, found = want[:len(want) - n], have[:len(have) - n]
+            inner, outer = (recorded, found) if len(recorded) <= len(found) else (found, recorded)
+            nested = [p.lower() for p in outer[:len(inner)]] == [p.lower() for p in inner]
+            if nested and n > shared:
+                best, shared = ("/".join(recorded), "/".join(found)), n
         if best:
-            moves["/".join(want[:len(want) - shared]), "/".join(best[:len(best) - shared])] += 1
+            moves[best] += 1
     if not moves:
         return None
     (was, now), count = moves.most_common(1)[0]
@@ -327,7 +334,9 @@ def check_deployment(game: Path, inventory: dict[str, list[str]]) -> list[Findin
     if not inventory:
         return []
     present = skyrim.game_files(game)
-    missing = {mod: [f for f in files if f.lower() not in present] for mod, files in inventory.items()}
+    # Builds before RUNTIME_DIRS recorded the files Skyrim Together writes itself; they're never "missing"
+    missing = {mod: [f for f in files if f.lower() not in present and not skyrim.is_runtime_file(f)]
+               for mod, files in inventory.items()}
     missing = {mod: files for mod, files in missing.items() if files}
     total = sum(map(len, inventory.values()))
     if not missing:
@@ -371,6 +380,21 @@ def check_deployment(game: Path, inventory: dict[str, list[str]]) -> list[Findin
 def setup_check(game: Path, req: dict) -> list[Finding]:
     """Does this game already match the pack? The plugin, load order and deployment checks, for the Home tab."""
     return check_plugins(game, req) + check_deployment(game, config.load_inventory())
+
+
+def all_mods_in_place(game: Path | None, inventory: dict[str, list[str]] | None = None) -> bool:
+    """Every plugin the pack enables is in Data, and every file its mods deployed (files.json) is in the game.
+
+    Then only the load order and settings can differ from the pack. False
+    without a game, a pack load order or a files.json (an older build can't tell).
+    """
+    inventory = config.load_inventory() if inventory is None else inventory
+    plugins_txt = paths.PACKINFO / "plugins.txt"
+    if not game or not inventory or not plugins_txt.exists():
+        return False
+    if any(not (Path(game) / "Data" / p).exists() for p in skyrim.enabled_plugins(plugins_txt)):
+        return False
+    return all(f.level == "OK" for f in check_deployment(Path(game), inventory))
 
 
 def matches_pack(findings: list[Finding]) -> bool:

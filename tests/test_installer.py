@@ -764,3 +764,62 @@ def test_a_missing_mod_or_no_way_to_tell_runs_the_whole_install(sandbox, drive, 
         (sandbox.packinfo / paths.INVENTORY_FILE).unlink()
     inst = installer.Installer(FakeUI(), "fresh", game=player)
     assert not inst.all_mods_in_place()
+
+
+# ---- the pack's load order on its own (Home's and the Doctor's button) ----------------------
+def test_apply_load_order_sets_the_order_and_optionally_the_inis(sandbox, player):
+    lines = []
+    installer.apply_load_order(config.load_requirements(), False, lines.append)
+    assert skyrim.enabled_plugins(paths.SKYRIM_APPDATA / "plugins.txt") == ["Alpha.esp", "Beta.esp"]
+    assert (skyrim.ini_dir() / "Skyrim.ini").read_text(encoding="utf-8") == "[theirs]\n"     # INIs left alone
+    assert lines == ["Load order: restored plugins.txt (yours backed up as .bak)"]
+    installer.apply_load_order(config.load_requirements(), True, lines.append)
+    assert (skyrim.ini_dir() / "Skyrim.ini").read_text(encoding="utf-8") == "[pack]\n"
+    # Applied twice: the .bak is still the player's own order, not the pack's
+    assert skyrim.enabled_plugins(paths.SKYRIM_APPDATA / "plugins.txt.bak") == ["Theirs.esp"]
+
+
+def test_apply_load_order_needs_skyrims_settings_folder(sandbox, player):
+    shutil.rmtree(paths.SKYRIM_APPDATA)
+    with pytest.raises(installer.Abort, match="Launch Skyrim SE once"):
+        installer.apply_load_order(config.load_requirements(), True, print)
+
+
+# ---- preparing zips: in parallel, already-compressed files stored -------------------------
+def test_already_compressed_files_are_stored_and_the_rest_deflated(tmp_path):
+    mod = tmp_path / "Voices-1-1"
+    (mod / "sound").mkdir(parents=True)
+    (mod / "sound" / "line.fuz").write_bytes(b"audio" * 1000)
+    (mod / "Voices.esp").write_bytes(b"TES4" * 1000)
+    installer.Installer.zip_folder(mod, tmp_path / "out.zip")
+    with zipfile.ZipFile(tmp_path / "out.zip") as zf:
+        kinds = {i.filename: i.compress_type for i in zf.infolist()}
+        assert zf.read("sound/line.fuz") == b"audio" * 1000
+    assert kinds == {"Voices.esp": zipfile.ZIP_DEFLATED, "sound/line.fuz": zipfile.ZIP_STORED}
+
+
+def test_many_mods_zipped_in_parallel_each_hold_their_own_files(sandbox, monkeypatch):
+    monkeypatch.setattr(installer, "ZIP_WORKERS", 4)
+    root = sandbox.root / "unpacked"
+    for m in range(12):
+        make_mod(root, f"Mod{m}-1-1", {f"Mod{m}.esp": f"plugin {m}".encode(), "textures/t.dds": bytes([m]) * 500})
+    ui = FakeUI()
+    assert installer.Installer(ui, "fresh").build_zips(root, paths.ZIP_DIR) == 12
+    for m in range(12):
+        with zipfile.ZipFile(paths.ZIP_DIR / f"Mod{m}-1-1.zip") as zf:
+            assert sorted(zf.namelist()) == [f"Mod{m}.esp", "textures/t.dds"]
+            assert zf.read("textures/t.dds") == bytes([m]) * 500
+
+
+def test_cancelling_while_zipping_stops_starting_new_mods(sandbox, monkeypatch):
+    monkeypatch.setattr(installer, "ZIP_WORKERS", 1)
+    root = sandbox.root / "unpacked"
+    for m in range(6):
+        make_mod(root, f"Mod{m}-1-1", {f"Mod{m}.esp": b"x"})
+    cancel = threading.Event()
+    ui = FakeUI()
+    ui.progress = lambda fraction, text: cancel.set()       # the player clicks Cancel after the first mod
+    with pytest.raises(installer.Cancelled):
+        installer.Installer(ui, "fresh", cancel=cancel).build_zips(root, paths.ZIP_DIR)
+    assert len(list(paths.ZIP_DIR.glob("*.zip"))) < 6
+    assert not list(paths.ZIP_DIR.glob("*.part"))             # no half-written zip left behind

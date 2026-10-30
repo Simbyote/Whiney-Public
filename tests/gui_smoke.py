@@ -69,6 +69,10 @@ def exercise():
     except Exception:
         errors.append("doctor repair: " + traceback.format_exc())
     try:
+        load_order_buttons()
+    except Exception:
+        errors.append("load order buttons: " + traceback.format_exc())
+    try:
         pick_a_pack_file()
     except Exception:
         errors.append("install file picker: " + traceback.format_exc())
@@ -149,6 +153,33 @@ def click_repair():
         install.repair_mods = []
     doctor_seen["started"] = started
     doctor_seen["page"] = app.current
+
+
+def load_order_buttons():
+    """"Apply the pack's load order" shows on Home and the Doctor's Sync card only with every mod in place."""
+    from whiney import doctor
+    home, doc = app.pages["home"], app.pages["doctor"]
+    sync_off = doctor.Finding("WARN", "Sync", "Your load order differs from the pack", "Same plugins, different order.")
+    seen = {}
+    for in_place in (True, False):
+        app.status.update(setup=[sync_off], mods_in_place=in_place, state="installed")
+        app.show("home")
+        seen[f"home_{in_place}"] = home.order_btn.winfo_manager() == "pack"
+        doc.show([sync_off], in_place)
+        stack, texts = [doc.list], []
+        while stack:
+            w = stack.pop()
+            stack.extend(w.winfo_children())
+            if type(w).__name__ == "CTkButton":
+                texts.append(str(w.cget("text")))
+        seen[f"doctor_{in_place}"] = "Apply the pack's load order" in texts
+    before = set(app.winfo_children())
+    app.apply_load_order()                             # asks first: the dialog opens, nothing is written yet
+    dialogs = [w for w in app.winfo_children() if w not in before and type(w).__name__ == "Dialog"]
+    seen["asks_first"] = len(dialogs) == 1
+    for w in dialogs:
+        w.destroy()
+    home_seen["load_order_button"] = seen
 
 
 def pick_a_pack_file():

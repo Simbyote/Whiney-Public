@@ -49,8 +49,12 @@ class HomePage(Page):
         self.setup.pack(fill="x", pady=(16, 0))
         setup_row = ctk.CTkFrame(self.setup, fg_color="transparent")
         setup_row.pack(fill="x", padx=18, pady=14)
-        btn(setup_row, "See details", lambda: self.app.show("doctor", run=True), "ghost", width=110, height=30) \
-            .pack(side="right")
+        self.details_btn = btn(setup_row, "See details", lambda: self.app.show("doctor", run=True), "ghost",
+                               width=110, height=30)
+        self.details_btn.pack(side="right")
+        # Shown when only the load order differs: every pack mod is already in the game
+        self.order_btn = btn(setup_row, "Apply the pack's load order", self.app.apply_load_order, "primary",
+                             width=200, height=30)
         label(setup_row, "SETUP CHECK", 11, MUTED, "bold").pack(anchor="w")
         self.setup_value = label(setup_row, "...", 16, TEXT, "bold")
         self.setup_value.pack(anchor="w", pady=(2, 0))
@@ -186,6 +190,11 @@ class HomePage(Page):
         self.hint.configure(text=hint)
 
         matches = self._show_setup(s.get("setup"), bool(game))
+        order_off = any(f.area == "Sync" and f.level != "OK" for f in s.get("setup") or [])
+        if order_off and s.get("mods_in_place"):
+            self.order_btn.pack(side="right", padx=(0, 8), after=self.details_btn)
+        else:
+            self.order_btn.pack_forget()
 
         hist = crashsquatch.load_history()
         last = hist[0] if hist else None

@@ -40,6 +40,13 @@ compare against it. It is recorded from what is deployed on the building PC,
 so build with every pack mod enabled and deployed in Vortex. A mod that is
 disabled while building is left out and never checked.
 
+Files the game writes into a mod's folder while it runs are left out of packs,
+`files.json` and the check (`skyrim.RUNTIME_DIRS`): today that's Skyrim
+Together's Chromium cache, `SkyrimTogetherReborn\cache`. Vortex pulls it into
+the mod's staging folder after you play, and each PC's is different, so it would
+otherwise be packed, re-packed in every update, and reported missing on players'
+PCs.
+
 ## Checksums
 
 Each pack run records the SHA-256 of the archive it wrote, and `build.bat`

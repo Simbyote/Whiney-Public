@@ -105,3 +105,8 @@ def test_a_crash_with_two_loggers_logs_offers_both(gui):
 def test_the_doctors_repair_button_starts_a_repair_of_that_cards_mods(gui):
     assert gui["doctor"] == {"repair_buttons": ["Repair 1 mod"], "page": "install",
                              "started": {"mode": "repair", "mods": ["Alpha-11111-1-0-1700000000"]}}
+
+
+def test_the_pack_load_order_button_shows_only_with_every_mod_in_place_and_asks_first(gui):
+    assert gui["home"]["load_order_button"] == {"home_True": True, "doctor_True": True,
+                                                "home_False": False, "doctor_False": False, "asks_first": True}

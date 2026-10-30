@@ -29,7 +29,7 @@ from typing import Any, Literal, TypeVar
 
 import customtkinter as ctk
 
-from whiney import config, crashsquatch, doctor, host, paths, skyrim, vortex, winapi
+from whiney import config, crashsquatch, doctor, host, installer, paths, skyrim, vortex, winapi
 from whiney.ui.pages.crash import CrashPage
 from whiney.ui.pages.doctor import DoctorPage
 from whiney.ui.pages.home import HomePage
@@ -127,7 +127,17 @@ class App(ctk.CTk):
         req = config.load_requirements()
         game = skyrim.find_game_dir()
         return {"req": req, "game": game, "state": config.install_state(req),
-                "sync": skyrim.sync_code(), "setup": self._setup_check(game, req)}
+                "sync": skyrim.sync_code(), "setup": self._setup_check(game, req),
+                "mods_in_place": self._mods_in_place(game)}
+
+    @staticmethod
+    def _mods_in_place(game: Path | None) -> bool:
+        """doctor.all_mods_in_place; False if it can't run."""
+        try:
+            return doctor.all_mods_in_place(game)
+        except Exception:
+            traceback.print_exc()
+            return False
 
     @staticmethod
     def _setup_check(game: Path | None, req: dict[str, Any]) -> list[doctor.Finding] | None:
@@ -231,6 +241,53 @@ class App(ctk.CTk):
         page = self.pages["install"]
         assert isinstance(page, InstallPage)
         page.repair(mods)
+
+    def apply_load_order(self) -> None:
+        """Set the pack's load order, and the INIs if the player wants them, without installing anything.
+
+        Offered by Home and the Doctor only when every pack mod is already in
+        the game. Vortex must be closed: it rewrites plugins.txt while open.
+        """
+        if vortex.vortex_running():
+            self.tell("Close Vortex first", "Vortex rewrites the load order while it's open. Close it "
+                                            "completely (check the icons by your clock too), then try again.")
+            return
+        req = self.status.get("req") or config.load_requirements()
+        author = config.CONFIG["author"]
+        message = ("Every mod in the pack is already in your game, so only the load order needs setting. "
+                   "Yours is kept as plugins.txt.bak (Manage > restore settings puts it back).")
+        if req.get("inis"):
+            buttons: list[tuple[str, Any, str]] = [("Load order + settings", "inis", "primary"),
+                                                   ("Load order only", "order", "normal"), ("Cancel", None, "normal")]
+            message += f"\n\nAlso use {author}'s game settings (INIs)? Yours are kept as .bak too."
+        else:
+            buttons = [("Set load order", "order", "primary"), ("Cancel", None, "normal")]
+
+        def work(choice: str) -> tuple[list[str], str | None]:
+            """(what was applied, or the reason it couldn't be)."""
+            lines: list[str] = []
+            try:
+                installer.apply_load_order(req, choice == "inis", lines.append)
+            except installer.Abort as e:
+                return lines, str(e)
+            return lines, None
+
+        def done(result: tuple[list[str], str | None]) -> None:
+            lines, error = result
+            if error:
+                self.tell("Couldn't set the load order", error)
+                return
+            self.refresh_status()
+            page = self.pages["doctor"]
+            if self.current == "doctor" and isinstance(page, DoctorPage):
+                page.run()
+            self.tell("Load order set", "\n".join(lines) + "\n\nIn Vortex > Plugins, keep Autosort OFF so "
+                                        "it keeps this order.")
+
+        def go(choice: str | None) -> None:
+            if choice:
+                self.run_bg(lambda: work(choice), done)
+        self.dialog("Use the pack's load order?", message, buttons, go)
 
     def refresh_status(self) -> None:
         def done(status: AppStatus) -> None:

@@ -128,3 +128,14 @@ def test_find_game_dir_finds_the_game_through_steams_registry_entry(sandbox):
     game = make_game(steam / "steamapps" / "common" / "Skyrim Special Edition")
     sandbox.winapi.set_reg("HKCU", STEAM_KEY, "SteamPath", str(steam))
     assert skyrim.find_game_dir() == game
+
+
+@pytest.mark.parametrize("rel, runtime", [
+    ("SkyrimTogetherReborn/cache/x/manifest.json", True),
+    ("Data/SkyrimTogetherReborn/cache/a.bin", True),
+    ("data\\skyrimtogetherreborn\\Cache\\a.bin", True),
+    ("Data/SkyrimTogetherReborn/SkyrimTogether.exe", False),
+    ("Data/OtherMod/cache/a.bin", False),                  # only Skyrim Together's cache
+])
+def test_only_skyrim_togethers_cache_counts_as_written_at_run_time(rel, runtime):
+    assert skyrim.is_runtime_file(rel) is runtime

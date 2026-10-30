@@ -24,6 +24,10 @@ from pathlib import Path
 from whiney import config, paths, winapi
 
 INI_FILES = ("Skyrim.ini", "SkyrimCustom.ini")   # SkyrimPrefs.ini is per-PC (resolution, graphics)
+# Folders a mod writes into while the game runs, inside its own folder. Skyrim Together's UI is
+# Chromium, which keeps a cache in SkyrimTogetherReborn/cache; Vortex then pulls it into the mod.
+# Each PC's is different, so it's never packed, recorded in files.json or checked for
+RUNTIME_DIRS = ("skyrimtogetherreborn/cache/",)
 OFFICIAL_MASTERS = ("Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm")
 
 
@@ -102,6 +106,18 @@ def game_files_by_name(game: str | Path) -> dict[str, list[str]]:
         for f in files:
             found.setdefault(f.lower(), []).append(prefix + f)
     return found
+
+
+def is_runtime_file(rel: str) -> bool:
+    """True for a file the game writes at run time inside a mod's folder (RUNTIME_DIRS), not one the mod ships.
+
+    Inputs:
+        rel: The path inside the mod or the game folder, with or without a leading "Data/".
+    """
+    path = rel.replace("\\", "/").lower()
+    if path.startswith("data/"):
+        path = path[5:]
+    return path.startswith(RUNTIME_DIRS)
 
 
 def find_game_dir() -> Path | None:

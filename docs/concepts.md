@@ -67,7 +67,7 @@
 
 **Snapshot / `_packinfo`.** What `build.bat` records from the maintainer's PC and bakes into the exe: `plugins.txt`, `loadorder.txt`, the shared INIs, and `requirements.json` (game version, SKSE runtime, CC files, ENB, mod list, pack dates and checksums).
 
-**Deployment inventory.** `_packinfo/files.json`, written by `build.bat`: for each pack mod, the files Vortex deployed from it into the maintainer's game folder (`Data/...`, or the game folder itself for SKSE- and ENB-type mods). Recorded from what is actually deployed, so files Vortex leaves out and disabled mods don't count. The Doctor, the installer's final check and Home's setup check compare players' game folders with it.
+**Deployment inventory.** `_packinfo/files.json`, written by `build.bat`: for each pack mod, the files Vortex deployed from it into the maintainer's game folder (`Data/...`, or the game folder itself for SKSE- and ENB-type mods). Recorded from what is actually deployed, so files Vortex leaves out and disabled mods don't count. The Doctor, the installer's final check and Home's setup check compare players' game folders with it. Files the game itself writes into a mod's folder (`skyrim.RUNTIME_DIRS`: Skyrim Together's cache) are never recorded or checked.
 
 **Install marker.** `installed.json` in the work folder: which full pack and update the player installed. Compared with `requirements.json` to show Install / Update ready / Installed.
 

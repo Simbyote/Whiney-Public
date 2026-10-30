@@ -43,7 +43,7 @@ Sync code: SYNC-CODE
 [WARN] Sync: Your load order differs from the pack
     Not enabled for you: base.esp
     Extra on your side: base2.esp, gone.esp, late.esp
-    Fix: In multiplayer this causes desyncs. Install tab > Install again restores it.
+    Fix: In multiplayer this causes desyncs. If every pack mod is in your game, Apply the pack's load order (here or on Home) fixes it; otherwise Install again.
 [FAIL] SKSE: 1 SKSE plugins installed but SKSE itself isn't
     Fix: Get SKSE from skse.silverlock.org and copy skse64_loader.exe + the .dll files next to SkyrimSE.exe.
 [WARN] Crash reports: No crash logger installed

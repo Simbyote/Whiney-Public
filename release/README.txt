@@ -57,6 +57,9 @@ HOME
   matches the pack (load order, and every mod file deployed).
   If it matches but the pack was never installed with this
   app, "Use my current setup" skips the install.
+  Only the load order differs, and every mod is there?
+  "Apply the pack's load order" fixes it in one click (close
+  Vortex first). No reinstall needed; yours is kept as .bak.
 
 INSTALL & UPDATE
   Mode: "Full install" (first time) or "Update only" (only

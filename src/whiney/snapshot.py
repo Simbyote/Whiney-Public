@@ -75,6 +75,8 @@ def deployed_inventory(game: Path, staging: Path, mods: list[str]) -> dict[str, 
             if not p.is_file():
                 continue
             rel = p.relative_to(folder).as_posix()
+            if skyrim.is_runtime_file(rel):
+                continue                    # written by the game on this PC, not shipped by the mod
             # Most mods deploy into Data; SKSE- and ENB-type mods into the game folder itself
             for where in (f"Data/{rel}", rel):
                 if where.lower() in present:

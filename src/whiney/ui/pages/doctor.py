@@ -39,6 +39,7 @@ class DoctorPage(Page):
         self.list = ctk.CTkScrollableFrame(body, fg_color="transparent")
         self.list.pack(fill="both", expand=True)
         self.results: list[doctor.Finding] = []
+        self.in_place = False       # every pack mod is in the game: the Sync card offers the pack's load order
         self.busy = False
 
     def run(self) -> None:
@@ -51,11 +52,17 @@ class DoctorPage(Page):
 
         def work() -> None:
             res = doctor.run_all(game, progress=lambda f, t: self.app.post(self.status_lbl.configure, text=t))
-            self.app.post(self.show, res)
+            try:
+                in_place = doctor.all_mods_in_place(game)
+            except Exception:
+                in_place = False
+            self.app.post(self.show, res, in_place)
         threading.Thread(target=work, daemon=True).start()
 
-    def show(self, results: list[doctor.Finding]) -> None:
+    def show(self, results: list[doctor.Finding], in_place: bool = False) -> None:
+        """Draw the findings. in_place: every pack mod is in the game (doctor.all_mods_in_place)."""
         self.busy = False
+        self.in_place = in_place
         set_on(self.run_btn, True)
         self.run_btn.configure(text="Run again")
         order = {"FAIL": 0, "WARN": 1, "OK": 2}
@@ -94,6 +101,9 @@ class DoctorPage(Page):
             label(inner, r.detail, 12, MUTED, wrap=10).pack(fill="x", pady=(2, 0))
         if r.fix and r.level != "OK":
             label(inner, "→ " + r.fix, 12, color, wrap=10).pack(fill="x", pady=(4, 0))
+        if r.area == "Sync" and r.level != "OK" and self.in_place:
+            btn(inner, "Apply the pack's load order", self.app.apply_load_order, "primary", width=200,
+                height=30).pack(anchor="w", pady=(8, 0))
         if r.mods and r.level != "OK":
             mods = list(r.mods)
             btn(inner, f"Repair {len(mods)} mod{'s' if len(mods) > 1 else ''}", lambda: self.app.repair(mods),

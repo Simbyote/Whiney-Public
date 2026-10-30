@@ -12,6 +12,7 @@ Main package:
 Flow:
     Independent helpers; no order.
 """
+import filecmp
 import hashlib
 import json
 import shutil
@@ -43,9 +44,15 @@ def human(n: float) -> str:
 
 
 def backup_and_copy(src: str | Path, dst: str | Path) -> None:
+    """Replace dst with src, keeping the replaced file as <dst>.bak.
+
+    A dst that is already the same as src isn't backed up: it's the pack's
+    copy from an earlier apply, and backing it up would overwrite the player's
+    own file in the .bak with it.
+    """
     dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    if dst.exists():
+    if dst.exists() and not filecmp.cmp(src, dst, shallow=False):
         shutil.copy2(dst, dst.with_name(dst.name + ".bak"))
     shutil.copy2(src, dst)
 

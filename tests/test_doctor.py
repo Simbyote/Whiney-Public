@@ -322,3 +322,44 @@ def test_a_finding_with_a_misspelt_level_fails_where_it_is_made():
     # As a dict, "FIAL" rendered with no color and was left out of the counts
     with pytest.raises(ValueError, match="FIAL"):
         doctor.Finding("FIAL", "Game", "typo")
+
+
+# ---- every pack mod in the game (Install's skip, the load order buttons) -------------------
+def test_all_mods_in_place_needs_every_plugin_and_every_recorded_file(sandbox, game):
+    write_plugin(game / "Data", "Alpha.esp")
+    write_plugins_txt(sandbox.packinfo / "plugins.txt", enabled=["Alpha.esp"])
+    inventory = {"Alpha-11111-1-0-1700000000": ["Data/Alpha.esp"]}
+    assert doctor.all_mods_in_place(game, inventory)
+    assert not doctor.all_mods_in_place(game, {"Alpha-11111-1-0-1700000000": ["Data/Alpha.esp", "Data/a.nif"]})
+    assert not doctor.all_mods_in_place(game, {})                      # an older build can't tell
+    assert not doctor.all_mods_in_place(None, inventory)
+    write_plugins_txt(sandbox.packinfo / "plugins.txt", enabled=["Alpha.esp", "Gone.esp"])
+    assert not doctor.all_mods_in_place(game, inventory)
+
+
+# ---- Skyrim Together's runtime cache (a player's Doctor report, 2026-10-30) ----------------
+STR = "Skyrim Together Reborn-69993-1-6-1700000000"
+CACHE_REC = "Data/SkyrimTogetherReborn/cache/CertificateRevocation/10869/_metadata/verified_contents.json"
+CACHE_HERE = "Data/SkyrimTogetherReborn/cache/AmountExtractionHeuristicRegexes/4/_metadata/verified_contents.json"
+
+
+def test_a_same_named_file_in_a_sibling_folder_is_not_a_mod_type_move():
+    # Two versions of a cache share file names; a Mod Type only moves files into or out of a folder
+    by_name = {"verified_contents.json": [CACHE_HERE]}
+    assert doctor.misplaced([CACHE_REC], by_name) is None
+
+
+def test_skyrim_togethers_cache_is_never_missing_even_in_an_older_builds_file_list(sandbox, game):
+    # The maintainer's cache was packed and recorded; the player's game wrote a different one
+    _deploy(game, "Data/SkyrimTogetherReborn/SkyrimTogether.exe", CACHE_HERE)
+    found = doctor.check_deployment(game, {STR: ["Data/SkyrimTogetherReborn/SkyrimTogether.exe", CACHE_REC]})
+    assert _levels(found) == [("OK", "All 1 pack mods are deployed")]
+
+
+def test_a_real_missing_file_beside_the_cache_gets_no_mod_type_advice(sandbox, game):
+    _deploy(game, "Data/SkyrimTogetherReborn/SkyrimTogether.exe", CACHE_HERE)
+    found = doctor.check_deployment(game, {STR: ["Data/SkyrimTogetherReborn/SkyrimTogether.exe", CACHE_REC,
+                                                 "Data/SkyrimTogetherReborn/SkyrimTogetherServer.exe"]})
+    assert found[0].detail == ("Skyrim Together Reborn: 1 of 3 files missing "
+                               "(e.g. Data/SkyrimTogetherReborn/SkyrimTogetherServer.exe)")
+    assert "Mod Type" not in found[0].fix

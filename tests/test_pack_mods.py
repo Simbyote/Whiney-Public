@@ -84,3 +84,30 @@ def test_update_pack_with_no_changes_writes_nothing(sandbox, staging):
     out = sandbox.kit / "modpack_update.tar.gz"
     assert pack_mods.update_pack(staging, out, level=1)
     assert not out.exists()
+
+
+def _with_together_cache(staging, cache_bytes):
+    mod = make_mod(staging, "Skyrim Together Reborn-69993-1-6-1700000000",
+                   {"SkyrimTogetherReborn/SkyrimTogether.exe": b"MZ"})
+    cache = mod / "SkyrimTogetherReborn" / "cache" / "Local State"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_bytes(cache_bytes)
+    return mod
+
+
+def test_skyrim_togethers_cache_is_left_out_of_the_pack(sandbox, staging):
+    _with_together_cache(staging, b"maintainer's session")
+    out = sandbox.kit / "modpack.tar.gz"
+    pack_mods.full_pack(staging, out, level=1)
+    with tarfile.open(out) as tar:
+        names = tar.getnames()
+    assert "mods/Skyrim Together Reborn-69993-1-6-1700000000/SkyrimTogetherReborn/SkyrimTogether.exe" in names
+    assert not any("/cache/" in n for n in names)
+
+
+def test_a_new_game_session_doesnt_make_skyrim_together_look_updated(sandbox, staging):
+    mod = _with_together_cache(staging, b"session one")
+    before = pack_mods.fingerprint(staging, "Skyrim Together Reborn-69993-1-6-1700000000")
+    (mod / "SkyrimTogetherReborn" / "cache" / "Local State").write_bytes(b"session two, a longer cache")
+    (mod / "SkyrimTogetherReborn" / "cache" / "new.bin").write_bytes(b"x")
+    assert pack_mods.fingerprint(staging, "Skyrim Together Reborn-69993-1-6-1700000000") == before

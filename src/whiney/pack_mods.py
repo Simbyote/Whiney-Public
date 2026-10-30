@@ -36,7 +36,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from whiney import paths, util, winapi
+from whiney import paths, skyrim, util, winapi
 
 ARC_ROOT = "mods"     # top folder inside the tarball; the installer skips it automatically
 # Outputs and manifests sit in the kit folder, beside the .bat files that run this
@@ -80,6 +80,8 @@ def scan(src: Path, mods: list[str]) -> tuple[list[tuple[str, str, int]], int]:
                 except OSError:
                     size = 0
                 rel = os.path.relpath(full, base).replace(os.sep, "/")
+                if skyrim.is_runtime_file(rel.split("/", 1)[1]):
+                    continue                # written by the game here (Skyrim Together's cache): not shipped
                 files.append((full, f"{ARC_ROOT}/{rel}", size))
                 total += size
     return files, total
@@ -98,6 +100,8 @@ def fingerprint(src: Path, mod: str) -> str:
             except OSError:
                 continue
             rel = os.path.relpath(full, root).replace(os.sep, "/")
+            if skyrim.is_runtime_file(rel):
+                continue                    # changes every game session; mustn't make the mod look updated
             h.update(f"{rel}|{st.st_size}|{st.st_mtime_ns}\n".encode("utf-8", "replace"))
     return h.hexdigest()
 

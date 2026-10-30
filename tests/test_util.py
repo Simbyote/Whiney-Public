@@ -38,6 +38,16 @@ def test_backup_and_copy_keeps_the_previous_file_as_bak(tmp_path):
     assert dst.with_name("Skyrim.ini.bak").read_text(encoding="utf-8") == "player's own"
 
 
+def test_applying_the_same_file_again_keeps_the_players_bak(tmp_path):
+    # The second apply finds the pack's copy in place; backing that up would lose the player's own file
+    src, dst = tmp_path / "new.ini", tmp_path / "Skyrim.ini"
+    src.write_text("pack", encoding="utf-8")
+    dst.write_text("player's own", encoding="utf-8")
+    util.backup_and_copy(src, dst)
+    util.backup_and_copy(src, dst)
+    assert dst.with_name("Skyrim.ini.bak").read_text(encoding="utf-8") == "player's own"
+
+
 @pytest.mark.parametrize("name", ["Mod/a.esp", "Mod/", "a/../b.esp", "."])
 def test_an_entry_inside_the_folder_is_allowed(tmp_path, name):
     assert util.safe_member_path(tmp_path, name).is_relative_to(tmp_path.resolve())

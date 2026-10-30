@@ -96,6 +96,12 @@ def test_the_inventory_records_only_what_is_deployed_and_where(sandbox, maintain
     (alpha / "fomod").mkdir()
     (alpha / "fomod" / "ModuleConfig.xml").write_text("<config/>", encoding="utf-8")
     make_mod(sandbox.staging, "SKSE-30379-2-2-6-1700000000", {"skse64_loader.exe": b"MZ"})
+    # Skyrim Together's cache is deployed too, but the game wrote it: never recorded
+    together = sandbox.staging / "Skyrim Together Reborn-69993-1-6-1700000000"
+    for rel in ("SkyrimTogetherReborn/SkyrimTogether.exe", "SkyrimTogetherReborn/cache/Local State"):
+        for where in (together / rel, maintainer / "Data" / rel):
+            where.parent.mkdir(parents=True, exist_ok=True)
+            where.write_bytes(b"x")
     (maintainer / "Data" / "textures").mkdir(parents=True)
     (maintainer / "Data" / "textures" / "a.dds").write_bytes(b"tex")         # case differs: still found
     (maintainer / "Data" / "Alpha.esp").write_bytes(b"")
@@ -104,6 +110,7 @@ def test_the_inventory_records_only_what_is_deployed_and_where(sandbox, maintain
     assert inventory == {
         "Alpha-11111-1-0-1700000000": ["Data/Alpha.esp", "Data/Textures/a.dds"],
         "SKSE-30379-2-2-6-1700000000": ["skse64_loader.exe"],      # make_game's loader stands in for it
+        "Skyrim Together Reborn-69993-1-6-1700000000": ["Data/SkyrimTogetherReborn/SkyrimTogether.exe"],
     }
 
 
